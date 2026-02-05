@@ -15,41 +15,73 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y python3-pip python3-venv patchelf desktop-file-utils libgdk-pixbuf2.0-dev
+        sudo apt-get install -y libfuse2 file desktop-file-utils
 
-    - name: Install linuxdeploy
+    - name: Setup AppImage Tool
       run: |
-        wget https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-        chmod +x linuxdeploy-x86_64.AppImage
-        wget https://github.com/linuxdeploy/linuxdeploy-plugin-python/releases/download/continuous/linuxdeploy-plugin-python-x86_64.AppImage
-        chmod +x linuxdeploy-plugin-python-x86_64.AppImage
+        wget https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+        chmod +x appimagetool-x86_64.AppImage
 
-    - name: Build AppImage
+    - name: Prepare AppDir (Niess Python Base)
       run: |
-        # Initialize AppDir
-        mkdir -p AppDir
+        # Download Base Image (Python 3.9 via Niess)
+        wget https://github.com/niess/python-appimage/releases/download/python3.9/python3.9.25-cp39-cp39-manylinux2014_x86_64.AppImage -O python.AppImage
+        chmod +x python.AppImage
         
-        # Install application and dependencies into AppDir
-        # We manually install into the standard python path structure within AppDir
-        # This is often more robust than relying on the plugin to resolve '.'
+        # Extract
+        ./python.AppImage --appimage-extract
+        mv squashfs-root AppDir
         
-        SITE_PACKAGES=AppDir/usr/lib/python3.10/site-packages
-        mkdir -p $SITE_PACKAGES
+        # Cleanup
+        rm python.AppImage
+
+    - name: Install Application
+      run: |
+        # The python binary inside AppDir
+        PYTHON=./AppDir/opt/python3.9/bin/python3.9
+        PIP=./AppDir/opt/python3.9/bin/pip3.9
         
-        export PYTHONPATH=$SITE_PACKAGES
-        pip3 install --target $SITE_PACKAGES .
+        # Upgrade pip
+        $PYTHON -m pip install --upgrade pip
         
-        # Cleanup unnecessary info (optional)
-        rm -rf $SITE_PACKAGES/*.dist-info
+        # Install project dependencies and project itself
+        # We install into the AppDir's python environment
+        $PIP install .
         
-        # Run linuxdeploy
-        # --icon-file is the correct flag (not --icon)
-        ./linuxdeploy-x86_64.AppImage \
-          --appdir AppDir \
-          --plugin python \
-          --desktop-file tunnelflare.desktop \
-          --icon-file gui/resources/tray.svg \
-          --output appimage
+        # Install PySide6 explicitly if needed? No, setup.py handles it.
+        # Note: PySide6 might need libxcb libs which might be missing in manylinux2014 base?
+        # Usually they bundle correct wheels.
+
+    - name: Configure AppDir
+      run: |
+        # Copy Desktop file & Icon
+        cp tunnelflare.desktop AppDir/
+        cp gui/resources/tray.svg AppDir/tunnelflare.svg
+        # Note: Desktop file Icon=tray. We renamed to tunnelflare.svg. 
+        # Update desktop file icon reference
+        sed -i 's/Icon=tray/Icon=tunnelflare/' AppDir/tunnelflare.desktop
+        
+        # Create AppRun
+        cat > AppDir/AppRun <<EOF
+        #!/bin/bash
+        HERE="\$(dirname "\$(readlink -f "\${0}")")"
+        export PATH="\$HERE/opt/python3.9/bin:\$PATH"
+        export LD_LIBRARY_PATH="\$HERE/opt/python3.9/lib:\$LD_LIBRARY_PATH"
+        
+        # Ensure we can find the app
+        # Since we installed 'pip install .', 'tunnelflare' command should be in bin
+        EXEC="\$HERE/opt/python3.9/bin/tunnelflare"
+        
+        exec "\$EXEC" "\$@"
+        EOF
+        
+        chmod +x AppDir/AppRun
+
+    - name: Package AppImage
+      env:
+        ARCH: x86_64
+      run: |
+        ./appimagetool-x86_64.AppImage AppDir TunnelFlare-x86_64.AppImage
 
     - name: Archive production artifacts
       uses: actions/upload-artifact@v4
