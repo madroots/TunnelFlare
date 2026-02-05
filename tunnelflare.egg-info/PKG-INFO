@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: tunnelflare
+Version: 1.0.0
+Summary: A modern GUI for Cloudflare Tunnels
+Author: TunnelFlare Team
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: PySide6>=6.5.0
+Requires-Dist: qrcode>=7.4.2
+Requires-Dist: Pillow>=10.0.0

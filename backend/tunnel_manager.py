@@ -1,0 +1,186 @@
+import subprocess
+import os
+import signal
+import time
+import re
+import shutil
+from pathlib import Path
+from .config_manager import ConfigManager
+
+class TunnelManager:
+    def __init__(self):
+        self.config_manager = ConfigManager()
+        self.dirs = self.config_manager.get_dirs()
+        self.tunnels_dir = self.dirs["tunnels"]
+        self.logs_dir = self.dirs["logs"]
+
+    def check_dependencies(self):
+        return shutil.which("cloudflared") is not None
+
+    def generate_tunnel_id(self, name):
+        # Sanitize name
+        clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+        # Ensure uniqueness
+        if not (self.tunnels_dir / f"{clean_name}.pid").exists():
+            return clean_name
+        
+        counter = 1
+        while (self.tunnels_dir / f"{clean_name}_{counter}.pid").exists():
+            counter += 1
+        return f"{clean_name}_{counter}"
+
+    def start_tunnel(self, name, port, protocol="http"):
+        if not self.check_dependencies():
+            raise RuntimeError("cloudflared is not installed")
+
+        tunnel_id = self.generate_tunnel_id(name)
+        log_file = self.logs_dir / f"{tunnel_id}.log"
+        pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
+        config_file = self.tunnels_dir / f"{tunnel_id}.config"
+
+        url = f"{protocol}://localhost:{port}"
+
+        # Write config metadata
+        with open(config_file, 'w') as f:
+            f.write(f"NAME={name}\n")
+            f.write(f"PORT={port}\n")
+            f.write(f"PROTOCOL={protocol}\n")
+            f.write(f"START_TIME={time.time()}\n")
+
+        # Start cloudflared
+        try:
+            with open(log_file, 'w') as log:
+                process = subprocess.Popen(
+                    ["cloudflared", "tunnel", "--url", url],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True
+                )
+            
+            with open(pid_file, 'w') as f:
+                f.write(str(process.pid))
+            
+            return tunnel_id
+        except Exception as e:
+            # Cleanup on failure
+            if pid_file.exists(): pid_file.unlink()
+            if config_file.exists(): config_file.unlink()
+            raise e
+
+    def stop_tunnel(self, tunnel_id):
+        pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
+        if not pid_file.exists():
+            return False
+
+        try:
+            with open(pid_file, 'r') as f:
+                pid = int(f.read().strip())
+            
+            os.kill(pid, signal.SIGTERM)
+            
+            # Wait for it to die
+            for _ in range(10):
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.5)
+                except OSError:
+                    break
+            else:
+                os.kill(pid, signal.SIGKILL)
+            
+            self._cleanup_tunnel_files(tunnel_id)
+            return True
+        except (OSError, ValueError):
+            # Process might be already dead
+            self._cleanup_tunnel_files(tunnel_id)
+            return False
+
+    def stop_all(self):
+        tunnels = self.get_active_tunnels()
+        for tunnel in tunnels:
+            self.stop_tunnel(tunnel['id'])
+
+    def _cleanup_tunnel_files(self, tunnel_id):
+        pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
+        config_file = self.tunnels_dir / f"{tunnel_id}.config"
+        # We process log files might be useful to keep, but for clean state maybe we keep them?
+        # The bash script removes them? No, bash script keeps logs usually? 
+        # Bash script removes pid and config. Let's keep logs for debugging but maybe not forever.
+        # For now, let's just remove pid and config.
+        if pid_file.exists(): pid_file.unlink()
+        if config_file.exists(): config_file.unlink()
+
+    def get_public_url(self, tunnel_id):
+        log_file = self.logs_dir / f"{tunnel_id}.log"
+        if not log_file.exists():
+            return None
+        
+        try:
+            content = log_file.read_text(errors='ignore')
+            matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
+            if matches:
+                 return matches[-1]
+        except Exception:
+            pass
+        return None
+
+    def get_logs_by_name(self, name):
+        # Scan running process for ID of this name
+        # AVOID RECURSION: Do not call get_active_tunnels here if get_active_tunnels calls this.
+        # But get_active_tunnels calls get_public_url, NOT get_logs_by_name. So it is safe to call get_active_tunnels?
+        # NO. get_logs_by_name calls get_active_tunnels. get_active_tunnels calls get_public_url.
+        # This is safe. The error was AttributeError because get_public_url was missing.
+        
+        active = self.get_active_tunnels()
+        target_id = None
+        for t in active:
+            if t['name'] == name:
+                target_id = t['id']
+                break
+        
+        if not target_id: return None
+        
+        log_file = self.logs_dir / f"{target_id}.log"
+        if log_file.exists():
+            return log_file.read_text(errors='ignore')
+        return None
+
+    def get_active_tunnels(self):
+        tunnels = []
+        for pid_file in self.tunnels_dir.glob("*.pid"):
+            tunnel_id = pid_file.stem
+            config_file = self.tunnels_dir / f"{tunnel_id}.config"
+            
+            # Check if running
+            try:
+                pid = int(pid_file.read_text().strip())
+                os.kill(pid, 0) # Check if process exists
+            except (OSError, ValueError):
+                # Dead tunnel cleanup
+                self._cleanup_tunnel_files(tunnel_id)
+                continue
+                
+            # Read config
+            name = tunnel_id
+            port = "?"
+            protocol = "?"
+            if config_file.exists():
+                content = config_file.read_text()
+                for line in content.splitlines():
+                    if line.startswith("NAME="): name = line[5:]
+                    if line.startswith("PORT="): port = line[5:]
+                    if line.startswith("PROTOCOL="): protocol = line[9:]
+
+            public_url = self.get_public_url(tunnel_id)
+            
+            tunnels.append({
+                "id": tunnel_id,
+                "name": name,
+                "port": port,
+                "protocol": protocol,
+                "pid": pid,
+                "public_url": public_url,
+                "status": "Running" if public_url else "Initializing"
+            })
+            
+        return tunnels
