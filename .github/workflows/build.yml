@@ -25,115 +25,30 @@ jobs:
         chmod +x linuxdeploy-plugin-python-x86_64.AppImage
 
     - name: Build AppImage
-      env:
-        ids_install_dir: "AppDir/usr/lib/python3.10/site-packages"
       run: |
         # Initialize AppDir
         mkdir -p AppDir
         
-        # Install app into AppDir
-        # We use pip to install . into the AppDir's site-packages equivalent handled by plugin, 
-        # BUT plugin-python expects us to just run it and it handles pip install usually if requirements.txt present?
-        # Actually plugin-python has specific modes. 
-        # The easiest way:
+        # Install application and dependencies into AppDir
+        # We manually install into the standard python path structure within AppDir
+        # This is often more robust than relying on the plugin to resolve '.'
         
-        # 1. Create venv
-        python3 -m venv venv
-        source venv/bin/activate
-        pip install .
+        SITE_PACKAGES=AppDir/usr/lib/python3.10/site-packages
+        mkdir -p $SITE_PACKAGES
         
-        # 2. Run LinuxDeploy with plugin
-        # We point to the venv's python and let it bundle it.
-        # But we need to install the module so `tunnelflare` entry point exists.
+        export PYTHONPATH=$SITE_PACKAGES
+        pip3 install --target $SITE_PACKAGES .
         
-        export LINUXDEPLOY_PLUGIN_PYTHON_PACKAGES="tunnelflare" # Can specify packages to install
-        # Or let it find requirements.txt
+        # Cleanup unnecessary info (optional)
+        rm -rf $SITE_PACKAGES/*.dist-info
         
-        # Let's try the direct pip install approach into AppDir if plugin supports it, 
-        # OR just install to system/venv and let plugin copy.
-        # The modern plugin-python way:
-        
+        # Run linuxdeploy
+        # --icon-file is the correct flag (not --icon)
         ./linuxdeploy-x86_64.AppImage \
           --appdir AppDir \
           --plugin python \
           --desktop-file tunnelflare.desktop \
-          --icon gui/resources/tray.svg \
-          --output appimage \
-          --custom-apprun=venv/bin/tunnelflare # This line is tricky, usually the desktop file Exec=tunnelflare works if path is set.
-        
-    - name: Build AppImage (Retry with correct flags)
-      if: failure()
-      run: |
-        # Fallback to manual pip install approach if above fails (it's tricky to get right first try without docs handy)
-        # Simplified approach:
-        
-        export VERSION=1.0.0
-        
-        ./linuxdeploy-x86_64.AppImage --appdir AppDir --output appimage \
-            --desktop-file tunnelflare.desktop \
-            --icon gui/resources/tray.svg \
-            --plugin python 
-            
-        # We need to tell plugin to install current dir
-        # export PIP_REQUIREMENTS="." ? 
-        # Actually usually:
-        # pip install --target AppDir/usr/lib/python3.*/site-packages .
-        
-        # Let's trust the standard flow:
-        # 1. Install to temporary dir
-        mkdir -p AppDir/usr
-        pip3 install --prefix=$(pwd)/AppDir/usr .
-        
-        # 2. Run linuxdeploy (no python plugin potentially if we installed everything?)
-        # No, we need python bundled.
-        
-        # REVISED COMMAND
-        # This uses the plugin to bundle python and install the current directory
-        ./linuxdeploy-x86_64.AppImage \
-           --appdir AppDir \
-           --plugin python \
-           --desktop-file tunnelflare.desktop \
-           --icon gui/resources/tray.svg \
-           --output appimage 
-           
-    - name: Build Specific
-      run: |
-         # Clean
-         rm -rf AppDir TunnelFlare*.AppImage
-         
-         # 1. Install pip dependencies to a temporary folder
-         pip3 install --target=deps .
-         
-         # 2. Run linuxdeploy configuration for python
-         # We assume the plugin installs requirements used via pip automatically if referenced?
-         # No.
-         
-         # Correct usage for source repo:
-         ./linuxdeploy-x86_64.AppImage --appdir AppDir \
-             --plugin python \
-             --desktop-file tunnelflare.desktop \
-             --icon gui/resources/tray.svg \
-             --output appimage 
-             
-         # Environment variables for python plugin:
-         # PIP_REQUIREMENTS: path to requirements.txt
-         # PIP_INSTALL_PACKAGES: list of packages
-         
-      env:
-         PIP_REQUIREMENTS: "requirements.txt"
-         # AND we need to install the project itself!
-         # Since current dir is the project, we can add "." to requirements.txt temporarily or just run:
-         # pip install . inside the build step.
-         
-    - name: Final Build Command
-      run: |
-        # Ensure we install the app itself
-        echo "." >> requirements.txt
-        
-        ./linuxdeploy-x86_64.AppImage --appdir AppDir \
-          --plugin python \
-          --desktop-file tunnelflare.desktop \
-          --icon gui/resources/tray.svg \
+          --icon-file gui/resources/tray.svg \
           --output appimage
 
     - name: Archive production artifacts
