@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TunnelFlare
+Exec=tunnelflare
+Icon=tray
+Categories=Network;Development;
+Comment=A modern GUI for Cloudflare Tunnels
+Terminal=false

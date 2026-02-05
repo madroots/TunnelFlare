@@ -1,4 +1,7 @@
-from PySide6.QtWidgets import QMainWindow, QStackedWidget, QMessageBox, QSystemTrayIcon, QMenu, QApplication
+from pathlib import Path
+
+RESOURCE_PATH = Path(__file__).parent / "resources"
+
 from PySide6.QtGui import QIcon, QAction
 from PySide6.QtCore import QTimer
 from backend.tunnel_manager import TunnelManager
@@ -51,7 +54,7 @@ class MainWindow(QMainWindow):
         self.tray_icon = QSystemTrayIcon(self)
         try:
              # Try custom icon
-             icon = QIcon("resources/tray.svg")
+             icon = QIcon(str(RESOURCE_PATH / "tray.svg"))
              if icon.isNull():
                  # Fallback
                  icon = QApplication.style().standardIcon(QApplication.style().SP_ComputerIcon)

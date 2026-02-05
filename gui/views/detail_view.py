@@ -1,8 +1,11 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QApplication
 from PySide6.QtCore import Qt, Signal, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QClipboard, QIcon
+from pathlib import Path
 from ..styles import Styles
-from ..components.tunnel_row import TunnelRow # For reusing logic/styles if needed? No, separate.
+from ..components.tunnel_row import TunnelRow 
+
+RESOURCE_PATH = Path(__file__).parent.parent / "resources"
 
 class DetailView(QWidget):
     back_requested = Signal()
@@ -66,12 +69,12 @@ class DetailView(QWidget):
         actions = QHBoxLayout()
         self.copy_btn = QPushButton(" Copy Link")
         self.copy_btn.setObjectName("IconButton")
-        self.copy_btn.setIcon(QIcon("resources/copy.svg"))
+        self.copy_btn.setIcon(QIcon(str(RESOURCE_PATH / "copy.svg")))
         self.copy_btn.clicked.connect(self.copy_link)
         
         self.qr_btn = QPushButton(" QR Code")
         self.qr_btn.setObjectName("IconButton")
-        self.qr_btn.setIcon(QIcon("resources/qr.svg"))
+        self.qr_btn.setIcon(QIcon(str(RESOURCE_PATH / "qr.svg")))
         self.qr_btn.clicked.connect(self.show_qr)
 
         actions.addWidget(self.copy_btn)
