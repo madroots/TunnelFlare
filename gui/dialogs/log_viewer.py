@@ -21,7 +21,6 @@ class LogViewerDialog(QDialog):
         
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
-        self.text_area.setStyleSheet("font-family: monospace; background-color: #1e1e2e; color: #cdd6f4;")
         layout.addWidget(self.text_area)
         
         btn_layout = QHBoxLayout()

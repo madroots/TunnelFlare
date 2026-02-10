@@ -9,59 +9,112 @@ class TunnelRow(QFrame):
     def __init__(self, tunnel_data, parent=None):
         super().__init__(parent)
         self.tunnel_data = tunnel_data
-        self.setObjectName("TunnelRow")
+        self.setObjectName("TunnelCard")
         self.setCursor(QCursor(Qt.PointingHandCursor))
-        self.setFixedHeight(80)
+        # Remove fixed height to allow expansion for URL box
         
         self.setup_ui()
 
     def update_status(self, is_running):
         self.tunnel_data['running'] = is_running
-        color = Styles.THEME["status_live"] if is_running else Styles.THEME["status_dead"]
+        has_url = bool(self.tunnel_data.get('public_url'))
         
-        # Update indicator
-        effect = QGraphicsDropShadowEffect()
-        effect.setBlurRadius(15)
-        effect.setColor(QColor(color))
-        effect.setOffset(0, 0)
-        self.indicator.setGraphicsEffect(effect)
+        status = "OFFLINE"
+        dot_obj = "StatusDotOffline"
+        badge_obj = "BadgeOffline"
+        is_published = False
+
+        if is_running:
+            if has_url:
+                status = "ONLINE"
+                dot_obj = "StatusDot"
+                badge_obj = "BadgeOnline"
+                is_published = True
+            else:
+                status = "STARTING"
+                dot_obj = "StatusDotStarting"
+                badge_obj = "BadgeStarting"
+                is_published = False
+
+        # Update Dot
+        self.dot.setObjectName(dot_obj)
+        self.dot.style().unpolish(self.dot)
+        self.dot.style().polish(self.dot)
         
-        # Update style of dot
-        self.indicator.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
+        # Update Badge
+        self.badge.setText(status)
+        self.badge.setObjectName(badge_obj)
+        self.badge.style().unpolish(self.badge)
+        self.badge.style().polish(self.badge)
+        
+        # Update Visibility of URL box
+        self.url_box.setVisible(has_url)
+        if has_url:
+            url = self.tunnel_data['public_url']
+            display_url = url[:25] + "..." if len(url) > 30 else url
+            self.url_text.setText(display_url)
+
+        # Update Card opacity
+        # If it's starting, maybe keep it full opacity or slightly dimmed?
+        # User said "wait with online status", I'll consider it "not offline" once starting.
+        self.setProperty("offline", "false" if is_running else "true")
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     def setup_ui(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 15, 20, 15)
-        layout.setSpacing(15)
+        # Card padding 18px
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(0)
 
-        # Status Indicator
-        self.indicator = QLabel()
-        self.indicator.setFixedSize(12, 12)
-        layout.addWidget(self.indicator)
+        # Row 1: dot + title + badge
+        header = QHBoxLayout()
+        header.setSpacing(10)
         
-        # Text Info
-        text_layout = QVBoxLayout()
-        text_layout.setSpacing(4)
+        self.dot = QLabel()
+        self.dot.setObjectName("StatusDot")
+        self.dot.setFixedSize(10, 10)
         
         self.name_label = QLabel(self.tunnel_data['name'])
-        self.name_label.setStyleSheet(f"color: {Styles.THEME['text_main']}; font-weight: bold; font-size: 16px;")
+        self.name_label.setObjectName("CardTitle")
         
-        self.port_label = QLabel(f"Local Port: {self.tunnel_data['port']}")
-        self.port_label.setStyleSheet(f"color: {Styles.THEME['text_dim']}; font-size: 12px;")
+        self.badge = QLabel("ONLINE")
+        self.badge.setObjectName("BadgeOnline")
+        self.badge.setAlignment(Qt.AlignCenter)
         
-        text_layout.addWidget(self.name_label)
-        text_layout.addWidget(self.port_label)
-        layout.addLayout(text_layout)
+        header.addWidget(self.dot)
+        header.addWidget(self.name_label)
+        header.addStretch()
+        header.addWidget(self.badge)
+        layout.addLayout(header)
         
-        layout.addStretch()
+        # Row 2: Port
+        layout.addSpacing(10)
+        self.port_label = QLabel(f"🔌  PORT {self.tunnel_data['port']}")
+        self.port_label.setObjectName("PortLabel")
+        layout.addWidget(self.port_label)
         
-        # Arrow (Visual cue)
-        arrow = QLabel("›")
-        arrow.setStyleSheet(f"color: {Styles.THEME['text_dim']}; font-size: 24px;")
-        layout.addWidget(arrow)
+        # Row 3: Inner URL Box
+        layout.addSpacing(16) # Reduced from 18 to align with DetailView
+        self.url_box = QFrame()
+        self.url_box.setObjectName("UrlInner")
+        url_layout = QHBoxLayout(self.url_box)
+        url_layout.setContentsMargins(14, 12, 14, 12) # Slightly smaller padding
         
-        # Initial status update
-        # We assume data might have 'running' key if provided by view logic, or default false
+        self.url_text = QLabel("Initializing...")
+        self.url_text.setObjectName("UrlText")
+        
+        # Using a more robust Unicode symbol for copy
+        copy_icon = QLabel("⎙") # Refined copy/print symbol
+        copy_icon.setStyleSheet("color: rgba(255, 255, 255, 0.3); font-size: 14px;")
+        
+        url_layout.addWidget(self.url_text)
+        url_layout.addStretch()
+        url_layout.addWidget(copy_icon)
+        
+        layout.addWidget(self.url_box)
+        
+        # Set initial state
         self.update_status(self.tunnel_data.get('running', False))
 
     def mousePressEvent(self, event):

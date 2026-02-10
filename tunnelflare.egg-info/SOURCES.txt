@@ -8,10 +8,15 @@ gui/styles.py
 gui/components/__init__.py
 gui/components/sidebar.py
 gui/components/tunnel_card.py
+gui/components/tunnel_row.py
 gui/dialogs/__init__.py
 gui/dialogs/create_tunnel.py
 gui/dialogs/log_viewer.py
 gui/dialogs/qr_code.py
+gui/views/__init__.py
+gui/views/detail_view.py
+gui/views/home_view.py
+gui/views/saved_tunnels.py
 tunnelflare.egg-info/PKG-INFO
 tunnelflare.egg-info/SOURCES.txt
 tunnelflare.egg-info/dependency_links.txt

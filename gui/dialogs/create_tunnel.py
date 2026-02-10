@@ -8,36 +8,42 @@ class CreateTunnelDialog(QDialog):
         self.config_manager = config_manager
         self.setWindowTitle("Add Tunnel")
         self.setFixedWidth(350)
-        self.setStyleSheet(Styles.STYLESHEET)
         self.setup_ui()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(30,30,30,30)
+        layout.setSpacing(16)
+        layout.setContentsMargins(24, 28, 24, 32)
         
-        layout.addWidget(QLabel("Tunnel Name", objectName="Subtitle"))
+        layout.addWidget(QLabel("Tunnel Name", objectName="PortLabel"))
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("e.g. backend-api")
         layout.addWidget(self.name_input)
 
-        layout.addWidget(QLabel("Local Port", objectName="Subtitle"))
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("🔌 Local Port", objectName="PortLabel"))
         self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("3000")
         layout.addWidget(self.port_input)
 
+        layout.addSpacing(24)
         # Buttons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(12)
+        
         self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setMinimumHeight(48)
+        self.cancel_btn.setCursor(Qt.PointingHandCursor)
         self.cancel_btn.clicked.connect(self.reject)
-        self.cancel_btn.setStyleSheet(f"background: transparent; color: {Styles.THEME['text_dim']}; border: 1px solid {Styles.THEME['bg_card']}; padding: 8px;")
         
         self.save_btn = QPushButton("Add Tunnel")
-        self.save_btn.setObjectName("PrimaryButton")
+        self.save_btn.setObjectName("PrimaryAction")
+        self.save_btn.setMinimumHeight(48)
+        self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.clicked.connect(self.validate_and_accept)
         
-        btn_layout.addWidget(self.cancel_btn)
-        btn_layout.addWidget(self.save_btn)
+        btn_layout.addWidget(self.cancel_btn, 1)
+        btn_layout.addWidget(self.save_btn, 1)
         layout.addLayout(btn_layout)
 
     def validate_and_accept(self):

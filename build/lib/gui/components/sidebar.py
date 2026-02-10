@@ -5,23 +5,39 @@ class Sidebar(QFrame):
     create_tunnel_requested = Signal()
     refresh_requested = Signal()
     stop_all_requested = Signal()
+    view_changed = Signal(str) # "active", "saved"
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("Sidebar")
         self.setFixedWidth(250)
+        self.current_view = "active"
         self.setup_ui()
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 30, 20, 30)
-        layout.setSpacing(20)
+        layout.setSpacing(15)
 
         # App Title
         title_label = QLabel("TunnelFlare")
         title_label.setObjectName("Title")
         title_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(title_label)
+
+        layout.addSpacing(20)
+
+        # Main Navigation
+        self.nav_active = QPushButton("Active Tunnels")
+        self.nav_active.setCheckable(True)
+        self.nav_active.setChecked(True)
+        self.nav_active.clicked.connect(lambda: self.switch_view("active"))
+        layout.addWidget(self.nav_active)
+
+        self.nav_saved = QPushButton("Saved Tunnels")
+        self.nav_saved.setCheckable(True)
+        self.nav_saved.clicked.connect(lambda: self.switch_view("saved"))
+        layout.addWidget(self.nav_saved)
 
         layout.addSpacing(20)
 
@@ -49,7 +65,23 @@ class Sidebar(QFrame):
         layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         # Footer
-        footer = QLabel("v1.0.0")
+        footer = QLabel("v1.1.0")
         footer.setStyleSheet("color: #585b70;")
         footer.setAlignment(Qt.AlignCenter)
         layout.addWidget(footer)
+
+    def switch_view(self, view):
+        self.current_view = view
+        if view == "active":
+            self.nav_active.setChecked(True)
+            self.nav_saved.setChecked(False)
+        else:
+            self.nav_active.setChecked(False)
+            self.nav_saved.setChecked(True)
+        self.view_changed.emit(view)
+
+    def set_stop_all_enabled(self, enabled):
+        self.stop_all_btn.setEnabled(enabled)
+        # Optional: Change style if disabled
+        opacity = "1" if enabled else "0.5"
+        self.stop_all_btn.setStyleSheet(f"opacity: {opacity};")

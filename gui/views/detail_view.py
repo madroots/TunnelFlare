@@ -1,4 +1,4 @@
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QApplication, QFrame
 from PySide6.QtCore import Qt, Signal, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QClipboard, QIcon
 from pathlib import Path
@@ -23,73 +23,120 @@ class DetailView(QWidget):
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(20)
+        layout.setContentsMargins(24, 28, 24, 40)
+        layout.setSpacing(24)
         
-        # Header
+        # Header (Now just Back)
         header_layout = QHBoxLayout()
-        self.back_btn = QPushButton("← Back")
-        self.back_btn.setObjectName("IconButton")
+        self.back_btn = QPushButton("< Back")
+        self.back_btn.setObjectName("BackButton")
+        self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.back_requested.emit)
         header_layout.addWidget(self.back_btn)
-        
-        self.title_label = QLabel("Tunnel Details")
-        self.title_label.setObjectName("Title")
-        header_layout.addStretch()
-        header_layout.addWidget(self.title_label)
         header_layout.addStretch()
         layout.addLayout(header_layout)
         
-        # Main Status Card
-        self.status_card = QWidget() # Using layout to simulate card
-        card_layout = QVBoxLayout()
+        # Unified Tunnel Card (Matching HomeView)
+        self.status_card = QFrame()
+        self.status_card.setObjectName("TunnelCard")
+        card_layout = QVBoxLayout(self.status_card)
+        card_layout.setContentsMargins(18, 18, 18, 18)
+        card_layout.setSpacing(0)
         
-        self.status_label = QLabel("OFFLINE")
-        self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet(f"font-size: 14px; color: {Styles.THEME['text_dim']}; letter-spacing: 1px;")
-        card_layout.addWidget(self.status_label)
+        status_header = QHBoxLayout()
+        status_header.setSpacing(10)
+        self.dot = QLabel()
+        self.dot.setObjectName("StatusDot")
+        self.dot.setFixedSize(10, 10)
         
-        self.toggle_btn = QPushButton("Turn ON")
-        self.toggle_btn.setObjectName("PrimaryButton")
-        self.toggle_btn.setMinimumHeight(50)
-        self.toggle_btn.clicked.connect(self.handle_toggle)
-        card_layout.addWidget(self.toggle_btn)
+        self.name_label = QLabel("--") # Set in load_tunnel
+        self.name_label.setObjectName("CardTitle")
         
-        layout.addLayout(card_layout)
+        self.badge = QLabel("OFFLINE")
+        self.badge.setObjectName("BadgeOffline")
         
-        # URL Display
-        self.url_label = QLabel("waiting for url...")
-        self.url_label.setObjectName("UrlDisplay")
-        self.url_label.setAlignment(Qt.AlignCenter)
-        self.url_label.setCursor(Qt.PointingHandCursor)
-        self.url_label.mousePressEvent = self.open_url
-        layout.addWidget(self.url_label)
-        
-        # Actions Row
-        actions = QHBoxLayout()
-        self.copy_btn = QPushButton(" Copy Link")
-        self.copy_btn.setObjectName("IconButton")
-        self.copy_btn.setIcon(QIcon(str(RESOURCE_PATH / "copy.svg")))
-        self.copy_btn.clicked.connect(self.copy_link)
-        
-        self.qr_btn = QPushButton(" QR Code")
-        self.qr_btn.setObjectName("IconButton")
-        self.qr_btn.setIcon(QIcon(str(RESOURCE_PATH / "qr.svg")))
-        self.qr_btn.clicked.connect(self.show_qr)
+        status_header.addWidget(self.dot)
+        status_header.addWidget(self.name_label)
+        status_header.addStretch()
+        status_header.addWidget(self.badge)
+        card_layout.addLayout(status_header)
 
-        actions.addWidget(self.copy_btn)
-        actions.addWidget(self.qr_btn)
-        layout.addLayout(actions)
+        card_layout.addSpacing(10)
+        self.port_label = QLabel("🔌  PORT --")
+        self.port_label.setObjectName("PortLabel")
+        card_layout.addWidget(self.port_label)
+        
+        # URL Section (Insde the card to match HomeView)
+        card_layout.addSpacing(16)
+        self.url_container = QFrame()
+        self.url_container.setObjectName("UrlInner")
+        self.url_container.setCursor(Qt.PointingHandCursor)
+        self.url_container.mousePressEvent = self.handle_url_click
+        
+        url_layout = QHBoxLayout(self.url_container)
+        url_layout.setContentsMargins(14, 12, 14, 12)
+        
+        self.url_text = QLabel("tunnel is stopped")
+        self.url_text.setObjectName("UrlText")
+        
+        self.copy_symbol = QLabel("⎙")
+        self.copy_symbol.setStyleSheet("color: rgba(255, 255, 255, 0.3); font-size: 14px;")
+        
+        url_layout.addWidget(self.url_text)
+        url_layout.addStretch()
+        url_layout.addWidget(self.copy_symbol)
+        card_layout.addWidget(self.url_container)
+        
+        layout.addWidget(self.status_card)
+
+        # Action Buttons Row (Muted grey style)
+        actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(12)
+        
+        self.qr_btn = QPushButton("QR Code")
+        # Using default QPushButton style (grey border)
+        self.qr_btn.setMinimumHeight(48)
+        self.qr_btn.setCursor(Qt.PointingHandCursor)
+        self.qr_btn.clicked.connect(self.show_qr)
+        
+        self.open_btn = QPushButton("Open Link")
+        # Using default QPushButton style
+        self.open_btn.setMinimumHeight(48)
+        self.open_btn.setCursor(Qt.PointingHandCursor)
+        self.open_btn.clicked.connect(self.open_url)
+        
+        actions_layout.addWidget(self.qr_btn, 1)
+        actions_layout.addWidget(self.open_btn, 1)
+        layout.addLayout(actions_layout)
+        
+        # Toggle Button (Prominent at bottom)
+        self.toggle_btn = QPushButton("Turn ON")
+        self.toggle_btn.setObjectName("PrimaryAction")
+        self.toggle_btn.setMinimumHeight(54)
+        self.toggle_btn.clicked.connect(self.handle_toggle)
+        layout.addWidget(self.toggle_btn)
         
         # Logs
-        layout.addWidget(QLabel("Live Logs", objectName="Subtitle"))
+        logs_label = QLabel("🗒️  LIVE LOGS")
+        logs_label.setObjectName("PortLabel")
+        layout.addWidget(logs_label)
+        
         self.log_display = QPlainTextEdit()
         self.log_display.setReadOnly(True)
         layout.addWidget(self.log_display)
     
+    def handle_url_click(self, event):
+        self.copy_link()
+
     def load_tunnel(self, name):
         self.current_tunnel_name = name
-        self.title_label.setText(name)
+        self.name_label.setText(name)
+        # Find the port
+        configs = self.tunnel_manager.config_manager.get_tunnels()
+        config = next((c for c in configs if c['name'] == name), None)
+        if config:
+            self.port_label.setText(f"🔌  PORT {config['port']}")
+            
         self.refresh_state()
         self.log_timer.start(1000)
     
@@ -97,48 +144,89 @@ class DetailView(QWidget):
         if not self.current_tunnel_name: return
         
         active_tunnels = self.tunnel_manager.get_active_tunnels()
-        # Find if running
         tunnel_info = next((t for t in active_tunnels if t['name'] == self.current_tunnel_name), None)
-        
-        if tunnel_info:
-            self.toggle_btn.setText("Stop Tunnel")
-            self.toggle_btn.setObjectName("DestructiveButton")
-            self.status_label.setText("ONLINE")
-            self.status_label.setStyleSheet(f"color: {Styles.THEME['status_live']}; font-weight: bold;")
-            
-            url = tunnel_info.get('public_url')
-            if url:
-                self.url_label.setText(url)
-                self.url_label.setEnabled(True)
+        is_running = bool(tunnel_info)
+        has_url = bool(tunnel_info.get('public_url')) if tunnel_info else False
+
+        status = "OFFLINE"
+        dot_obj = "StatusDotOffline"
+        badge_obj = "BadgeOffline"
+
+        if is_running:
+            if has_url:
+                status = "ONLINE"
+                dot_obj = "StatusDot"
+                badge_obj = "BadgeOnline"
             else:
-                self.url_label.setText("Allocating URL...")
-                self.url_label.setEnabled(False)
-        else:
-            self.toggle_btn.setText("Turn ON")
-            self.toggle_btn.setObjectName("PrimaryButton")
-            self.status_label.setText("OFFLINE")
-            self.status_label.setStyleSheet(f"color: {Styles.THEME['text_dim']};")
-            self.url_label.setText("Tunnel is stopped")
-            self.url_label.setEnabled(False)
+                status = "STARTING"
+                dot_obj = "StatusDotStarting"
+                badge_obj = "BadgeStarting"
+
+        # Update Dot
+        self.dot.setObjectName(dot_obj)
+        self.dot.style().unpolish(self.dot)
+        self.dot.style().polish(self.dot)
+        
+        # Update Badge
+        self.badge.setText(status)
+        self.badge.setObjectName(badge_obj)
+        self.badge.style().unpolish(self.badge)
+        self.badge.style().polish(self.badge)
+        
+        if is_running:
+            # Only update button if it's enabled (not currently performing an action)
+            if self.toggle_btn.isEnabled():
+                self.toggle_btn.setText("Stop Tunnel")
+                self.toggle_btn.setObjectName("DestructiveButton")
+                self.toggle_btn.setProperty("is_running", True)
             
-        # Re-polish style
+            if has_url:
+                url = tunnel_info.get('public_url')
+                self.url_text.setText(url)
+                self.url_container.setVisible(True)
+                self.qr_btn.setEnabled(True)
+                self.open_btn.setEnabled(True)
+            else:
+                self.url_text.setText("Allocating URL...")
+                self.url_container.setVisible(True)
+                self.qr_btn.setEnabled(False)
+                self.open_btn.setEnabled(False)
+        else:
+            if self.toggle_btn.isEnabled():
+                self.toggle_btn.setText("Turn ON")
+                self.toggle_btn.setObjectName("PrimaryAction")
+                self.toggle_btn.setProperty("is_running", False)
+            
+            self.url_container.setVisible(False)
+            self.qr_btn.setEnabled(False)
+            self.open_btn.setEnabled(False)
+            
+        # Re-enable button if the background action is done
+        is_btn_running = self.toggle_btn.property("is_running")
+        # If button says it's running but it's not, or vice versa, and it was disabled (action in progress)
+        if not self.toggle_btn.isEnabled():
+             # If we were starting (is_running was False) and now it IS running
+             if is_btn_running == False and is_running == True:
+                 self.toggle_btn.setEnabled(True)
+             # If we were stopping (is_running was True) and now it is NOT running
+             elif is_btn_running == True and is_running == False:
+                 self.toggle_btn.setEnabled(True)
+             
+        # Re-polish style for toggle button
         self.toggle_btn.style().unpolish(self.toggle_btn)
         self.toggle_btn.style().polish(self.toggle_btn)
+        
+        # Opacity for card
+        self.status_card.setProperty("offline", "false" if is_running else "true")
+        self.status_card.style().unpolish(self.status_card)
+        self.status_card.style().polish(self.status_card)
 
     def update_logs(self):
         if not self.current_tunnel_name: return
-        # Get logs from manager
-        # Optimization: We need to know the ID to get logs, but we only have name.
-        # Manager should probably support get_logs_by_name or we lookup ID.
         logs = self.tunnel_manager.get_logs_by_name(self.current_tunnel_name)
         if logs:
             self.log_display.setPlainText(logs)
             self.log_display.verticalScrollBar().setValue(self.log_display.verticalScrollBar().maximum())
-        else:
-            if self.log_display.toPlainText() != "":
-                # Don't clear if stopped? Maybe user wants to see last logs.
-                # For now keep it.
-                pass
 
     def handle_toggle(self):
         # We need to know port from config
@@ -151,19 +239,19 @@ class DetailView(QWidget):
         QTimer.singleShot(200, self.refresh_state)
 
     def copy_link(self):
-        text = self.url_label.text()
+        text = self.url_text.text()
         if "http" in text:
             QApplication.clipboard().setText(text)
-            self.copy_btn.setText("Copied!")
-            QTimer.singleShot(1500, lambda: self.copy_btn.setText("Copy Link"))
+            self.copy_symbol.setText("✓")
+            QTimer.singleShot(1500, lambda: self.copy_symbol.setText("⎙"))
 
-    def open_url(self, event):
-        text = self.url_label.text()
+    def open_url(self):
+        text = self.url_text.text()
         if "http" in text:
             QDesktopServices.openUrl(QUrl(text))
 
     def show_qr(self):
-        text = self.url_label.text()
+        text = self.url_text.text()
         if "http" in text:
              from ..dialogs.qr_code import QRCodeDialog
              dialog = QRCodeDialog(text, self.window())

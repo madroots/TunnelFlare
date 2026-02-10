@@ -1,121 +1,127 @@
-from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QScrollArea, QMessageBox, QApplication
-from PySide6.QtCore import QTimer, Qt
+from pathlib import Path
+
+RESOURCE_PATH = Path(__file__).parent / "resources"
+
+from PySide6.QtGui import QIcon, QAction
+from PySide6.QtCore import QTimer
 from backend.tunnel_manager import TunnelManager
 from backend.config_manager import ConfigManager
-from .components.sidebar import Sidebar
-from .components.tunnel_card import TunnelCard
+from .views.home_view import HomeView
+from .views.detail_view import DetailView
 from .dialogs.create_tunnel import CreateTunnelDialog
-from .dialogs.log_viewer import LogViewerDialog
 from .styles import Styles
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("TunnelFlare")
-        self.resize(1000, 700)
+        self.resize(400, 750) # Mobile-like aspect ratio
         
         self.config_manager = ConfigManager()
         self.tunnel_manager = TunnelManager()
         
         self.setup_ui()
-        self.check_dependencies()
+        self.setup_tray()
         
-        # Auto-refresh timer
+        # Navigation Stack
+        self.stack = QStackedWidget()
+        self.setCentralWidget(self.stack)
+        
+        # Views
+        self.home_view = HomeView(self.config_manager, self.tunnel_manager)
+        self.detail_view = DetailView(self.tunnel_manager)
+        
+        self.stack.addWidget(self.home_view)
+        self.stack.addWidget(self.detail_view)
+        
+        # Signals
+        self.home_view.add_requested.connect(self.show_add_dialog)
+        self.home_view.tunnel_clicked.connect(self.go_to_detail)
+        self.detail_view.back_requested.connect(self.go_home)
+        self.detail_view.toggle_requested.connect(self.toggle_tunnel)
+        
+        # Loop
         self.refresh_timer = QTimer(self)
-        self.refresh_timer.timeout.connect(self.refresh_tunnels)
-        self.refresh_timer.start(3000) # 3 seconds
+        self.refresh_timer.timeout.connect(self.refresh_current_view)
+        self.refresh_timer.start(2000)
         
-        # Initial stats
-        self.refresh_tunnels()
+        self.refresh_current_view()
 
     def setup_ui(self):
-        # Apply Styles
         self.setStyleSheet(Styles.STYLESHEET)
+    
+    def setup_tray(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        try:
+             # Try custom icon
+             icon = QIcon(str(RESOURCE_PATH / "tray.svg"))
+             if icon.isNull():
+                 # Fallback
+                 icon = QApplication.style().standardIcon(QApplication.style().SP_ComputerIcon)
+             self.tray_icon.setIcon(icon)
+        except:
+             pass
         
-        # Central Widget
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        menu = QMenu()
+        show_action = QAction("Show", self)
+        show_action.triggered.connect(self.show)
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(QApplication.quit)
+        
+        menu.addAction(show_action)
+        menu.addAction(quit_action)
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.show()
 
-        # Sidebar
-        self.sidebar = Sidebar()
-        self.sidebar.create_tunnel_requested.connect(self.show_create_tunnel_dialog)
-        self.sidebar.refresh_requested.connect(self.refresh_tunnels)
-        self.sidebar.stop_all_requested.connect(self.stop_all_tunnels)
-        main_layout.addWidget(self.sidebar)
+    def refresh_current_view(self):
+        if self.stack.currentWidget() == self.home_view:
+            self.home_view.refresh()
+        elif self.stack.currentWidget() == self.detail_view:
+            self.detail_view.refresh_state()
 
-        # Content Area
-        content_area = QWidget()
-        content_layout = QVBoxLayout(content_area)
-        content_layout.setContentsMargins(30, 30, 30, 30)
-        
-        # Header (Optional, or just use ScrollArea directly)
-        
-        # Scroll Area for Tunnels
-        self.scroll_area = QScrollArea()
-        self.scroll_area.setWidgetResizable(True)
-        self.tunnels_container = QWidget()
-        self.tunnels_layout = QVBoxLayout(self.tunnels_container)
-        self.tunnels_layout.setAlignment(Qt.AlignTop)
-        self.scroll_area.setWidget(self.tunnels_container)
-        
-        content_layout.addWidget(self.scroll_area)
-        main_layout.addWidget(content_area)
+    def go_to_detail(self, name):
+        self.detail_view.load_tunnel(name)
+        self.stack.setCurrentWidget(self.detail_view)
 
-    def check_dependencies(self):
-        if not self.tunnel_manager.check_dependencies():
-            QMessageBox.critical(self, "Missing Dependency", "cloudflared is not installed. Please install it to use this application.")
-            # We don't exit, but functionality will fail.
+    def go_home(self):
+        self.detail_view.stop() # Stop logs
+        self.stack.setCurrentWidget(self.home_view)
+        self.home_view.refresh()
 
-    def refresh_tunnels(self):
-        # Get current data
-        tunnels = self.tunnel_manager.get_active_tunnels()
-        
-        # Clear existing items (inefficient but safe for now)
-        # Optimization: Diff Update could be better but complexity is higher.
-        while self.tunnels_layout.count():
-            item = self.tunnels_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
-        
-        if not tunnels:
-            empty_label = QLabel("No active tunnels. Start one to get going!")
-            empty_label.setAlignment(Qt.AlignCenter)
-            empty_label.setStyleSheet("color: #7f849c; font-size: 16px; margin-top: 50px;")
-            self.tunnels_layout.addWidget(empty_label)
-        else:
-            for tunnel in tunnels:
-                card = TunnelCard(tunnel)
-                card.stop_requested.connect(self.stop_tunnel)
-                card.logs_requested.connect(self.show_logs)
-                self.tunnels_layout.addWidget(card)
-
-    def show_create_tunnel_dialog(self):
+    def show_add_dialog(self):
         dialog = CreateTunnelDialog(self, self.config_manager)
         if dialog.exec():
             data = dialog.get_data()
-            try:
-                self.tunnel_manager.start_tunnel(data['name'], data['port'], data['protocol'])
-                self.refresh_tunnels()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to start tunnel: {str(e)}")
+            self.config_manager.add_tunnel(data['name'], data['port'])
+            self.home_view.refresh() # Immediate update
 
-    def stop_tunnel(self, tunnel_id):
-        if self.tunnel_manager.stop_tunnel(tunnel_id):
-            self.refresh_tunnels()
+    def toggle_tunnel(self, name):
+        # Determine if we should start or stop
+        active = self.tunnel_manager.get_active_tunnels()
+        tunnel_id = next((t['id'] for t in active if t['name'] == name), None)
+        
+        if tunnel_id:
+            # Stop
+            self.tunnel_manager.stop_tunnel(tunnel_id)
         else:
-            QMessageBox.warning(self, "Error", "Failed to stop tunnel or it was already stopped.")
+            # Start (Lookup config)
+            configs = self.config_manager.get_tunnels()
+            config = next((c for c in configs if c['name'] == name), None)
+            if config:
+                try:
+                    self.tunnel_manager.start_tunnel(config['name'], config['port'])
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", str(e))
+        
+        self.detail_view.refresh_state()
 
-    def stop_all_tunnels(self):
-        reply = QMessageBox.question(self, "Stop All", "Are you sure you want to stop ALL running tunnels?", QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            self.tunnel_manager.stop_all()
-            self.refresh_tunnels()
-
-    def show_logs(self, tunnel_id):
-        log_file = self.tunnel_manager.logs_dir / f"{tunnel_id}.log"
-        dialog = LogViewerDialog(str(log_file), self)
-        dialog.exec()
+    def closeEvent(self, event):
+        # Minimize to tray instead of closing?
+        # User requested "System Tray Integration: It allows users to close the GUI while keeping the dev-tunnel running"
+        # So ignore close, hide.
+        if self.tray_icon.isVisible():
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage("TunnelFlare", "Running in background", QSystemTrayIcon.Information, 2000)
+        else:
+            super().closeEvent(event)
