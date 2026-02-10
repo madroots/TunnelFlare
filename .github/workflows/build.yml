@@ -57,21 +57,26 @@ jobs:
         # Copy Desktop file & Icon
         cp tunnelflare.desktop AppDir/
         cp gui/resources/tray.svg AppDir/tunnelflare.svg
-        # Note: Desktop file Icon=tray. We renamed to tunnelflare.svg. 
-        # Update desktop file icon reference
         sed -i 's/Icon=tray/Icon=tunnelflare/' AppDir/tunnelflare.desktop
         
-        # Create AppRun
+        # IMPORTANT: Remove the existing AppRun symlink from the base image
+        # If we don't, cat writes through the symlink into usr/bin/AppRun, 
+        # which breaks the relative path resolution ($HERE points to usr/bin).
+        rm -f AppDir/AppRun
+        
+        # Create a fresh, root-level AppRun
         cat > AppDir/AppRun <<EOF
         #!/bin/bash
         HERE="\$(dirname "\$(readlink -f "\${0}")")"
         
+        # Set Python Environment
         export PYTHONHOME="\$HERE/opt/python3.9"
-        export PYTHONPATH="\$HERE/opt/python3.9/lib/python3.9/site-packages:\$HERE/opt/python3.9/lib/python3.9/lib-dynload:\$PYTHONPATH"
+        export PYTHONPATH="\$HERE/opt/python3.9/lib/python3.9/site-packages:\$HERE/opt/python3.9/lib/python3.9/lib-dynload:\$HERE"
         export PATH="\$HERE/opt/python3.9/bin:\$PATH"
         export LD_LIBRARY_PATH="\$HERE/opt/python3.9/lib:\$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:\$LD_LIBRARY_PATH"
         
-        # Run via python to avoid shebang path issues on the end-user machine
+        # Run the app entry point
+        # We use the python binary directly to avoid shebang issues
         exec "\$HERE/opt/python3.9/bin/python3.9" -m main "\$@"
         EOF
         
