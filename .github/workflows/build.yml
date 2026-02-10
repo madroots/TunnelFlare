@@ -54,30 +54,43 @@ jobs:
 
     - name: Configure AppDir
       run: |
-        # Copy Desktop file & Icon
+        # Copy Icons & Desktop file
         cp tunnelflare.desktop AppDir/
         cp gui/resources/tray.svg AppDir/tunnelflare.svg
+        ln -s tunnelflare.svg AppDir/.DirIcon
         sed -i 's/Icon=tray/Icon=tunnelflare/' AppDir/tunnelflare.desktop
         
-        # IMPORTANT: Remove the existing AppRun symlink from the base image
-        # If we don't, cat writes through the symlink into usr/bin/AppRun, 
-        # which breaks the relative path resolution ($HERE points to usr/bin).
-        rm -f AppDir/AppRun
+        # IMPORTANT: Purge ALL existing AppRun files (root and usr/bin)
+        # The Niess image has a symlink at root -> usr/bin/AppRun.
+        # We must delete both to be safe.
+        find AppDir -name AppRun -delete
         
-        # Create a fresh, root-level AppRun
-        cat > AppDir/AppRun <<EOF
+        # Create a bulletproof root-level AppRun
+        cat > AppDir/AppRun <<'EOF'
         #!/bin/bash
-        HERE="\$(dirname "\$(readlink -f "\${0}")")"
+        # Get absolute path to this script without resolving the folder name itself
+        HERE=$(dirname "$(readlink -f "$0")")
+
+        # If we somehow landed in usr/bin, move up to the root
+        if [ -d "$HERE/../../opt" ]; then
+            HERE="${HERE%/*/*}"
+        elif [ -d "$HERE/../opt" ]; then
+            HERE="${HERE%/*}"
+        fi
+
+        # Setup Python and App Environment
+        export PYTHONHOME="$HERE/opt/python3.9"
+        export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages:$HERE"
+        export PATH="$HERE/opt/python3.9/bin:$PATH"
         
-        # Set Python Environment
-        export PYTHONHOME="\$HERE/opt/python3.9"
-        export PYTHONPATH="\$HERE/opt/python3.9/lib/python3.9/site-packages:\$HERE/opt/python3.9/lib/python3.9/lib-dynload:\$HERE"
-        export PATH="\$HERE/opt/python3.9/bin:\$PATH"
-        export LD_LIBRARY_PATH="\$HERE/opt/python3.9/lib:\$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:\$LD_LIBRARY_PATH"
+        # Qt/PySide6 specific library paths
+        export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
         
-        # Run the app entry point
-        # We use the python binary directly to avoid shebang issues
-        exec "\$HERE/opt/python3.9/bin/python3.9" -m main "\$@"
+        # Avoid "No protocol specified" errors in some environments
+        export QT_X11_NO_MITSHM=1
+
+        # Run via python module to avoid shebang path issues
+        exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@"
         EOF
         
         chmod +x AppDir/AppRun
