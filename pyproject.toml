@@ -22,7 +22,10 @@ tunnelflare = "main:main"
 
 [tool.setuptools]
 py-modules = ["main"]
-packages = ["backend", "gui", "gui.components", "gui.dialogs", "gui.views"]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["backend*", "gui*"]
 
 [tool.setuptools.package-data]
 gui = ["resources/*.svg"]

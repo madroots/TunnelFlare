@@ -41,12 +41,9 @@ jobs:
         PYTHON=./AppDir/opt/python3.9/bin/python3.9
         PIP=./AppDir/opt/python3.9/bin/pip3.9
         
-        # Upgrade pip
+        # Upgrade pip and install the app forcefully to ensure latest code
         $PYTHON -m pip install --upgrade pip
-        
-        # Install project dependencies and project itself
-        # We install into the AppDir's python environment
-        $PIP install .
+        $PIP install --force-reinstall --no-cache-dir .
         
         # Install PySide6 explicitly if needed? No, setup.py handles it.
         # Note: PySide6 might need libxcb libs which might be missing in manylinux2014 base?
@@ -72,13 +69,18 @@ jobs:
         HERE=$(dirname "$(readlink -f "$0")")
 
         # Setup Python and App Environment
-        # In the Niess base, Python is located in /opt/python3.9/ relative to AppDir root
         export PYTHONHOME="$HERE/opt/python3.9"
+        # We REMOVE $HERE from PYTHONPATH to ensure it only uses the installed site-packages
         export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
         export PATH="$HERE/opt/python3.9/bin:$PATH"
         
         # Qt/PySide6 specific library paths
         export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
+        
+        # Ensure X11/Display authorization is passed if available
+        if [ -z "$XAUTHORITY" ] && [ -e "$HOME/.Xauthority" ]; then
+            export XAUTHORITY="$HOME/.Xauthority"
+        fi
         
         # Fix for some Linux distros where Qt might have issues with shared memory
         export QT_X11_NO_MITSHM=1
