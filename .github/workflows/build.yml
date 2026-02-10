@@ -68,28 +68,23 @@ jobs:
         # Create a bulletproof root-level AppRun
         cat > AppDir/AppRun <<'EOF'
         #!/bin/bash
-        # Get absolute path to this script without resolving the folder name itself
+        # Get absolute path to the AppImage mount point (the root of AppDir)
         HERE=$(dirname "$(readlink -f "$0")")
 
-        # If we somehow landed in usr/bin, move up to the root
-        if [ -d "$HERE/../../opt" ]; then
-            HERE="${HERE%/*/*}"
-        elif [ -d "$HERE/../opt" ]; then
-            HERE="${HERE%/*}"
-        fi
-
         # Setup Python and App Environment
+        # In the Niess base, Python is located in /opt/python3.9/ relative to AppDir root
         export PYTHONHOME="$HERE/opt/python3.9"
-        export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages:$HERE"
+        export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
         export PATH="$HERE/opt/python3.9/bin:$PATH"
         
         # Qt/PySide6 specific library paths
         export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
         
-        # Avoid "No protocol specified" errors in some environments
+        # Fix for some Linux distros where Qt might have issues with shared memory
         export QT_X11_NO_MITSHM=1
 
-        # Run via python module to avoid shebang path issues
+        # Run via python module
+        # Our main.py is installed into site-packages via 'pip install .'
         exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@"
         EOF
         
