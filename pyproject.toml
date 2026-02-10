@@ -25,7 +25,7 @@ py-modules = ["main"]
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["backend*", "gui*"]
+include = ["tunnelflare_backend*", "tunnelflare_gui*"]
 
 [tool.setuptools.package-data]
-gui = ["resources/*.svg"]
+tunnelflare_gui = ["resources/*.svg"]

@@ -5,7 +5,7 @@ import time
 import re
 import shutil
 from pathlib import Path
-from .config_manager import ConfigManager
+from tunnelflare_backend.config_manager import ConfigManager
 
 class TunnelManager:
     def __init__(self):

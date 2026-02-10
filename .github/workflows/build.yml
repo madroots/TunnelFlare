@@ -53,7 +53,7 @@ jobs:
       run: |
         # Copy Icons & Desktop file
         cp -f tunnelflare.desktop AppDir/
-        cp -f gui/resources/tray.svg AppDir/tunnelflare.svg
+        cp -f tunnelflare_gui/resources/tray.svg AppDir/tunnelflare.svg
         ln -sf tunnelflare.svg AppDir/.DirIcon
         sed -i 's/Icon=tray/Icon=tunnelflare/' AppDir/tunnelflare.desktop
         

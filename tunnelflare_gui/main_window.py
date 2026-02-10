@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QSystemTrayIcon, 
     QMenu, QApplication, QMessageBox
 )
-from backend.tunnel_manager import TunnelManager
-from backend.config_manager import ConfigManager
+from tunnelflare_backend.tunnel_manager import TunnelManager
+from tunnelflare_backend.config_manager import ConfigManager
 from .views.home_view import HomeView
 from .views.detail_view import DetailView
 from .dialogs.create_tunnel import CreateTunnelDialog

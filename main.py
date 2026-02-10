@@ -1,7 +1,7 @@
 import sys
 from PySide6.QtWidgets import QApplication
-from gui.main_window import MainWindow
-from gui.styles import Styles
+from tunnelflare_gui.main_window import MainWindow
+from tunnelflare_gui.styles import Styles
 import signal
 
 def main():
