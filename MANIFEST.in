@@ -1,0 +1,6 @@
+include gui/resources/*.svg
+recursive-include gui *.py
+recursive-include backend *.py
+include main.py
+include requirements.txt
+include README.md

@@ -65,14 +65,14 @@ jobs:
         cat > AppDir/AppRun <<EOF
         #!/bin/bash
         HERE="\$(dirname "\$(readlink -f "\${0}")")"
+        
+        export PYTHONHOME="\$HERE/opt/python3.9"
+        export PYTHONPATH="\$HERE/opt/python3.9/lib/python3.9/site-packages:\$HERE/opt/python3.9/lib/python3.9/lib-dynload:\$PYTHONPATH"
         export PATH="\$HERE/opt/python3.9/bin:\$PATH"
-        export LD_LIBRARY_PATH="\$HERE/opt/python3.9/lib:\$LD_LIBRARY_PATH"
+        export LD_LIBRARY_PATH="\$HERE/opt/python3.9/lib:\$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:\$LD_LIBRARY_PATH"
         
-        # Ensure we can find the app
-        # Since we installed 'pip install .', 'tunnelflare' command should be in bin
-        EXEC="\$HERE/opt/python3.9/bin/tunnelflare"
-        
-        exec "\$EXEC" "\$@"
+        # Run via python to avoid shebang path issues on the end-user machine
+        exec "\$HERE/opt/python3.9/bin/python3.9" -m main "\$@"
         EOF
         
         chmod +x AppDir/AppRun

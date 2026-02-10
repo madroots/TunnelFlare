@@ -20,6 +20,9 @@ dependencies = [
 [project.scripts]
 tunnelflare = "main:main"
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["backend*", "gui*", "main.py"]
+[tool.setuptools]
+py-modules = ["main"]
+packages = ["backend", "gui", "gui.components", "gui.dialogs", "gui.views"]
+
+[tool.setuptools.package-data]
+gui = ["resources/*.svg"]
