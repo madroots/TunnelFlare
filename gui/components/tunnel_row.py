@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QGraphicsDropShadowEffect
-from PySide6.QtGui import QColor, QCursor
+from PySide6.QtGui import QColor, QCursor, QIcon, QPixmap
 from PySide6.QtCore import Qt, Signal
 from ..styles import Styles
 
@@ -22,19 +22,16 @@ class TunnelRow(QFrame):
         status = "OFFLINE"
         dot_obj = "StatusDotOffline"
         badge_obj = "BadgeOffline"
-        is_published = False
 
         if is_running:
             if has_url:
                 status = "ONLINE"
                 dot_obj = "StatusDot"
                 badge_obj = "BadgeOnline"
-                is_published = True
             else:
                 status = "STARTING"
                 dot_obj = "StatusDotStarting"
                 badge_obj = "BadgeStarting"
-                is_published = False
 
         # Update Dot
         self.dot.setObjectName(dot_obj)
@@ -47,13 +44,6 @@ class TunnelRow(QFrame):
         self.badge.style().unpolish(self.badge)
         self.badge.style().polish(self.badge)
         
-        # Update Visibility of URL box
-        self.url_box.setVisible(has_url)
-        if has_url:
-            url = self.tunnel_data['public_url']
-            display_url = url[:25] + "..." if len(url) > 30 else url
-            self.url_text.setText(display_url)
-
         # Update Card opacity
         # If it's starting, maybe keep it full opacity or slightly dimmed?
         # User said "wait with online status", I'll consider it "not offline" once starting.
@@ -90,29 +80,25 @@ class TunnelRow(QFrame):
         
         # Row 2: Port
         layout.addSpacing(10)
-        self.port_label = QLabel(f"🔌  PORT {self.tunnel_data['port']}")
+        port_layout = QHBoxLayout()
+        port_layout.setSpacing(6)
+        
+        self.port_icon = QLabel()
+        from pathlib import Path
+        resource_path = Path(__file__).parent.parent / "resources"
+        # We can use QIcon + pixmap for simpler label display
+        pixmap = QIcon(str(resource_path / "port.svg")).pixmap(16, 16)
+        self.port_icon.setPixmap(pixmap)
+        self.port_icon.setFixedSize(16, 16)
+        self.port_icon.setScaledContents(True)
+        
+        self.port_label = QLabel(f"PORT {self.tunnel_data['port']}")
         self.port_label.setObjectName("PortLabel")
-        layout.addWidget(self.port_label)
         
-        # Row 3: Inner URL Box
-        layout.addSpacing(16) # Reduced from 18 to align with DetailView
-        self.url_box = QFrame()
-        self.url_box.setObjectName("UrlInner")
-        url_layout = QHBoxLayout(self.url_box)
-        url_layout.setContentsMargins(14, 12, 14, 12) # Slightly smaller padding
-        
-        self.url_text = QLabel("Initializing...")
-        self.url_text.setObjectName("UrlText")
-        
-        # Using a more robust Unicode symbol for copy
-        copy_icon = QLabel("⎙") # Refined copy/print symbol
-        copy_icon.setStyleSheet("color: rgba(255, 255, 255, 0.3); font-size: 14px;")
-        
-        url_layout.addWidget(self.url_text)
-        url_layout.addStretch()
-        url_layout.addWidget(copy_icon)
-        
-        layout.addWidget(self.url_box)
+        port_layout.addWidget(self.port_icon)
+        port_layout.addWidget(self.port_label)
+        port_layout.addStretch()
+        layout.addLayout(port_layout)
         
         # Set initial state
         self.update_status(self.tunnel_data.get('running', False))

@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QFrame
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize
+from PySide6.QtGui import QIcon
 from ..components.tunnel_row import TunnelRow
 from ..styles import Styles
 
@@ -34,10 +35,16 @@ class HomeView(QWidget):
         header_text.addWidget(title)
         header_text.addWidget(subtitle)
         
-        add_btn = QPushButton("+")
+        add_btn = QPushButton()
         add_btn.setObjectName("AddButton")
         add_btn.setFixedSize(46, 46)
         add_btn.setCursor(Qt.PointingHandCursor)
+        
+        from pathlib import Path
+        resource_path = Path(__file__).parent.parent / "resources"
+        add_btn.setIcon(QIcon(str(resource_path / "add.svg")))
+        add_btn.setIconSize(QSize(30, 30))
+        
         add_btn.clicked.connect(self.add_requested.emit)
         
         header.addLayout(header_text)

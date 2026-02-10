@@ -32,8 +32,8 @@ class ConfigManager:
         }
 
     def add_tunnel(self, name, port):
-        # Always saved.
-        # Check if exists
+        # Ensure latest state before adding
+        self.config = self._load_config()
         self.remove_tunnel(name) # Replace if exists
         
         tunnels = self.config.get("tunnels", [])
@@ -46,12 +46,15 @@ class ConfigManager:
         self.save_config()
 
     def remove_tunnel(self, name):
+        # Ensure latest state before removing
+        self.config = self._load_config()
         tunnels = self.config.get("tunnels", [])
         self.config["tunnels"] = [t for t in tunnels if t['name'] != name]
         self.save_config()
+
     
     def get_tunnels(self):
-        # Combine default config (migrating old) if needed, but let's stick to simple "tunnels"
+        self.config = self._load_config()
         return self.config.get("tunnels", [])
 
     def save_config(self):

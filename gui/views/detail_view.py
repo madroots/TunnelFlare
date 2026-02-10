@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QPlainTextEdit, QApplication, QFrame
-from PySide6.QtCore import Qt, Signal, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QClipboard, QIcon
+from PySide6.QtCore import Qt, Signal, QTimer, QUrl, QSize
+from PySide6.QtGui import QDesktopServices, QClipboard, QIcon, QPixmap
 from pathlib import Path
 from ..styles import Styles
 from ..components.tunnel_row import TunnelRow 
@@ -26,14 +26,26 @@ class DetailView(QWidget):
         layout.setContentsMargins(24, 28, 24, 40)
         layout.setSpacing(24)
         
-        # Header (Now just Back)
+        # Header (Back + Delete)
         header_layout = QHBoxLayout()
         self.back_btn = QPushButton("< Back")
         self.back_btn.setObjectName("BackButton")
         self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.back_requested.emit)
         header_layout.addWidget(self.back_btn)
+        
         header_layout.addStretch()
+        
+        self.delete_btn = QPushButton()
+        self.delete_btn.setObjectName("BackButton") # Reuse ghost style
+        self.delete_btn.setCursor(Qt.PointingHandCursor)
+        from pathlib import Path
+        resource_path = Path(__file__).parent.parent / "resources"
+        self.delete_btn.setIcon(QIcon(str(resource_path / "delete.svg")))
+        self.delete_btn.setIconSize(QSize(24, 24))
+        self.delete_btn.clicked.connect(self.handle_delete)
+        header_layout.addWidget(self.delete_btn)
+        
         layout.addLayout(header_layout)
         
         # Unified Tunnel Card (Matching HomeView)
@@ -62,9 +74,21 @@ class DetailView(QWidget):
         card_layout.addLayout(status_header)
 
         card_layout.addSpacing(10)
-        self.port_label = QLabel("🔌  PORT --")
+        port_layout = QHBoxLayout()
+        port_layout.setSpacing(6)
+        
+        self.port_icon = QLabel()
+        from pathlib import Path
+        resource_path = Path(__file__).parent.parent / "resources"
+        self.port_icon.setPixmap(QIcon(str(resource_path / "port.svg")).pixmap(16, 16))
+        
+        self.port_label = QLabel("PORT --")
         self.port_label.setObjectName("PortLabel")
-        card_layout.addWidget(self.port_label)
+        
+        port_layout.addWidget(self.port_icon)
+        port_layout.addWidget(self.port_label)
+        port_layout.addStretch()
+        card_layout.addLayout(port_layout)
         
         # URL Section (Insde the card to match HomeView)
         card_layout.addSpacing(16)
@@ -93,14 +117,16 @@ class DetailView(QWidget):
         actions_layout = QHBoxLayout()
         actions_layout.setSpacing(12)
         
-        self.qr_btn = QPushButton("QR Code")
-        # Using default QPushButton style (grey border)
+        self.qr_btn = QPushButton(" QR Code")
+        self.qr_btn.setIcon(QIcon(str(resource_path / "qr.svg")))
+        self.qr_btn.setIconSize(QSize(20, 20))
         self.qr_btn.setMinimumHeight(48)
         self.qr_btn.setCursor(Qt.PointingHandCursor)
         self.qr_btn.clicked.connect(self.show_qr)
         
-        self.open_btn = QPushButton("Open Link")
-        # Using default QPushButton style
+        self.open_btn = QPushButton(" Open Link")
+        self.open_btn.setIcon(QIcon(str(resource_path / "open.svg")))
+        self.open_btn.setIconSize(QSize(20, 20))
         self.open_btn.setMinimumHeight(48)
         self.open_btn.setCursor(Qt.PointingHandCursor)
         self.open_btn.clicked.connect(self.open_url)
@@ -117,14 +143,46 @@ class DetailView(QWidget):
         layout.addWidget(self.toggle_btn)
         
         # Logs
-        logs_label = QLabel("🗒️  LIVE LOGS")
+        logs_header_layout = QHBoxLayout()
+        logs_header_layout.setSpacing(6)
+        
+        logs_icon = QLabel()
+        logs_icon.setPixmap(QIcon(str(resource_path / "logs.svg")).pixmap(16, 16))
+        
+        logs_label = QLabel("LIVE LOGS")
         logs_label.setObjectName("PortLabel")
-        layout.addWidget(logs_label)
+        
+        logs_header_layout.addWidget(logs_icon)
+        logs_header_layout.addWidget(logs_label)
+        logs_header_layout.addStretch()
+        layout.addLayout(logs_header_layout)
         
         self.log_display = QPlainTextEdit()
         self.log_display.setReadOnly(True)
         layout.addWidget(self.log_display)
     
+    def handle_delete(self):
+        from PySide6.QtWidgets import QMessageBox
+        target_name = self.current_tunnel_name
+        reply = QMessageBox.question(
+            self, 'Delete Tunnel',
+            f"Are you sure you want to delete '{target_name}'?\nThis action cannot be undone.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # 1. Stop if running
+            active = self.tunnel_manager.get_active_tunnels()
+            tunnel_id = next((t['id'] for t in active if t['name'] == target_name), None)
+            if tunnel_id:
+                self.tunnel_manager.stop_tunnel(tunnel_id)
+            
+            # 2. Delete from config
+            self.tunnel_manager.config_manager.remove_tunnel(target_name)
+            
+            # 3. Go back
+            self.back_requested.emit()
+
     def handle_url_click(self, event):
         self.copy_link()
 
@@ -135,7 +193,7 @@ class DetailView(QWidget):
         configs = self.tunnel_manager.config_manager.get_tunnels()
         config = next((c for c in configs if c['name'] == name), None)
         if config:
-            self.port_label.setText(f"🔌  PORT {config['port']}")
+            self.port_label.setText(f"PORT {config['port']}")
             
         self.refresh_state()
         self.log_timer.start(1000)

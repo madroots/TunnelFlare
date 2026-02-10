@@ -21,7 +21,24 @@ class CreateTunnelDialog(QDialog):
         layout.addWidget(self.name_input)
 
         layout.addSpacing(12)
-        layout.addWidget(QLabel("🔌 Local Port", objectName="PortLabel"))
+        port_header_layout = QHBoxLayout()
+        port_header_layout.setSpacing(6)
+        
+        from PySide6.QtGui import QIcon, QPixmap
+        from pathlib import Path
+        resource_path = Path(__file__).parent.parent / "resources"
+        
+        port_icon = QLabel()
+        port_icon.setPixmap(QIcon(str(resource_path / "port.svg")).pixmap(16, 16))
+        
+        port_label = QLabel("Local Port")
+        port_label.setObjectName("PortLabel")
+        
+        port_header_layout.addWidget(port_icon)
+        port_header_layout.addWidget(port_label)
+        port_header_layout.addStretch()
+        layout.addLayout(port_header_layout)
+
         self.port_input = QLineEdit()
         self.port_input.setPlaceholderText("3000")
         layout.addWidget(self.port_input)
