@@ -15,6 +15,13 @@ class TunnelManager:
         self.tunnels_dir = self.dirs["tunnels"]
         self.logs_dir = self.dirs["logs"]
         self.debug_log = self.config_manager.config_dir / "debug.log"
+        
+        # Initial diagnostic entry
+        self._log("--- TunnelManager initialized ---")
+        self._log(f"Platform: {sys.platform}")
+        self._log(f"Executable: {sys.executable}")
+        self._log(f"MEIPASS: {getattr(sys, '_MEIPASS', 'None')}")
+        self._log(f"APPDIR: {os.environ.get('APPDIR', 'None')}")
 
     def _log(self, message):
         with open(self.debug_log, 'a', encoding='utf-8') as f:
@@ -27,6 +34,10 @@ class TunnelManager:
             path = Path(sys._MEIPASS) / f"cloudflared{ext}"
             if path.exists(): 
                 return str(path)
+            # If we're on Windows, check if it's in the root of the MEIPASS or the current dir
+            if sys.platform == "win32":
+                p2 = Path(sys.executable).parent / "cloudflared.exe"
+                if p2.exists(): return str(p2)
 
         # 2. Check in APPDIR (Linux AppImage)
         appdir = os.environ.get('APPDIR')
@@ -74,7 +85,9 @@ class TunnelManager:
 
         # Start cloudflared
         try:
-            url = f"{protocol}://localhost:{port}"
+            # Use 127.0.0.1 instead of localhost for Windows stability
+            host = "127.0.0.1" if sys.platform == "win32" else "localhost"
+            url = f"{protocol}://{host}:{port}"
             cf_path = self._get_cloudflared_path()
             if not cf_path:
                 raise RuntimeError("cloudflared binary not found")
@@ -235,3 +248,5 @@ class TunnelManager:
             })
             
         return tunnels
+    def get_debug_log_path(self):
+        return str(self.debug_log)
