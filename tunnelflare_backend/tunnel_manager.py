@@ -1,9 +1,10 @@
 import subprocess
 import os
-import signal
 import time
 import re
 import shutil
+import sys
+import psutil
 from pathlib import Path
 from tunnelflare_backend.config_manager import ConfigManager
 
@@ -49,13 +50,23 @@ class TunnelManager:
 
         # Start cloudflared
         try:
-            with open(log_file, 'w') as log:
-                process = subprocess.Popen(
-                    ["cloudflared", "tunnel", "--url", url],
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                    start_new_session=True
-                )
+            # Platform specific subprocess flags
+            kwargs = {
+                "stdout": open(log_file, 'w'),
+                "stderr": subprocess.STDOUT,
+            }
+            
+            if sys.platform == "win32":
+                # CREATE_NO_WINDOW prevents terminal flash
+                # CREATE_NEW_PROCESS_GROUP allows better process group management
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+            else:
+                kwargs["start_new_session"] = True
+
+            process = subprocess.Popen(
+                ["cloudflared", "tunnel", "--url", url],
+                **kwargs
+            )
             
             with open(pid_file, 'w') as f:
                 f.write(str(process.pid))
@@ -76,22 +87,24 @@ class TunnelManager:
             with open(pid_file, 'r') as f:
                 pid = int(f.read().strip())
             
-            os.kill(pid, signal.SIGTERM)
-            
-            # Wait for it to die
-            for _ in range(10):
+            if psutil.pid_exists(pid):
+                proc = psutil.Process(pid)
+                # Terminate properly cross-platform
+                proc.terminate()
+                
+                # Wait for it to die
                 try:
-                    os.kill(pid, 0)
-                    time.sleep(0.5)
-                except OSError:
-                    break
-            else:
-                os.kill(pid, signal.SIGKILL)
+                    proc.wait(timeout=5)
+                except psutil.TimeoutExpired:
+                    proc.kill()
             
             self._cleanup_tunnel_files(tunnel_id)
             return True
-        except (OSError, ValueError):
-            # Process might be already dead
+        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+            # Process might be already dead or no permission
+            self._cleanup_tunnel_files(tunnel_id)
+            return False
+        except Exception:
             self._cleanup_tunnel_files(tunnel_id)
             return False
 
@@ -103,10 +116,6 @@ class TunnelManager:
     def _cleanup_tunnel_files(self, tunnel_id):
         pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
         config_file = self.tunnels_dir / f"{tunnel_id}.config"
-        # We process log files might be useful to keep, but for clean state maybe we keep them?
-        # The bash script removes them? No, bash script keeps logs usually? 
-        # Bash script removes pid and config. Let's keep logs for debugging but maybe not forever.
-        # For now, let's just remove pid and config.
         if pid_file.exists(): pid_file.unlink()
         if config_file.exists(): config_file.unlink()
 
@@ -125,12 +134,6 @@ class TunnelManager:
         return None
 
     def get_logs_by_name(self, name):
-        # Scan running process for ID of this name
-        # AVOID RECURSION: Do not call get_active_tunnels here if get_active_tunnels calls this.
-        # But get_active_tunnels calls get_public_url, NOT get_logs_by_name. So it is safe to call get_active_tunnels?
-        # NO. get_logs_by_name calls get_active_tunnels. get_active_tunnels calls get_public_url.
-        # This is safe. The error was AttributeError because get_public_url was missing.
-        
         active = self.get_active_tunnels()
         target_id = None
         for t in active:
@@ -154,8 +157,9 @@ class TunnelManager:
             # Check if running
             try:
                 pid = int(pid_file.read_text().strip())
-                os.kill(pid, 0) # Check if process exists
-            except (OSError, ValueError):
+                if not psutil.pid_exists(pid):
+                    raise psutil.NoSuchProcess(pid)
+            except (psutil.NoSuchProcess, ValueError, OSError):
                 # Dead tunnel cleanup
                 self._cleanup_tunnel_files(tunnel_id)
                 continue
