@@ -95,8 +95,8 @@ class TunnelManager:
             # Platform specific subprocess flags
             if sys.platform == "win32":
                 # Global flags MUST come before the command (tunnel)
-                # On Windows, using --logfile is much more reliable than shell redirection
-                cmd = [cf_path, "--loglevel", "info", "--no-autoupdate", "tunnel", "--url", url, "--logfile", str(log_file)]
+                # Force http2 and IPv4 for better compatibility through Windows firewalls
+                cmd = [cf_path, "--no-autoupdate", "tunnel", "--protocol", "http2", "--edge-ip-version", "4", "--url", url, "--logfile", str(log_file)]
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
                     "stderr": subprocess.PIPE, # Capture stderr for the startup check
