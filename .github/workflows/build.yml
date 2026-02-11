@@ -45,27 +45,27 @@ jobs:
         cp -f tunnelflare_gui/resources/tray.svg AppDir/tunnelflare.svg
         ln -sf tunnelflare.svg AppDir/.DirIcon
         cat > AppDir/tunnelflare.desktop <<EOF
-[Desktop Entry]
-Type=Application
-Name=TunnelFlare
-Exec=tunnelflare
-Icon=tunnelflare
-Categories=Network;Development;
-Comment=A modern GUI for Cloudflare Tunnels
-Terminal=false
-EOF
+        [Desktop Entry]
+        Type=Application
+        Name=TunnelFlare
+        Exec=tunnelflare
+        Icon=tunnelflare
+        Categories=Network;Development;
+        Comment=A modern GUI for Cloudflare Tunnels
+        Terminal=false
+        EOF
         find AppDir -name AppRun -delete
         cat > AppDir/AppRun <<'EOF'
-#!/bin/bash
-HERE=$(dirname "$(readlink -f "$0")")
-export PYTHONHOME="$HERE/opt/python3.9"
-export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
-export PATH="$HERE/opt/python3.9/bin:$PATH"
-export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
-export QT_PLUGIN_PATH="$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/plugins"
-export QT_X11_NO_MITSHM=1
-exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@"
-EOF
+        #!/bin/bash
+        HERE=$(dirname "$(readlink -f "$0")")
+        export PYTHONHOME="$HERE/opt/python3.9"
+        export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
+        export PATH="$HERE/opt/python3.9/bin:$PATH"
+        export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
+        export QT_PLUGIN_PATH="$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/plugins"
+        export QT_X11_NO_MITSHM=1
+        exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@"
+        EOF
         chmod +x AppDir/AppRun
 
     - name: Package AppImage
