@@ -24,6 +24,7 @@ class CreateTunnelDialog(QDialog):
         port_header_layout = QHBoxLayout()
         port_header_layout.setSpacing(6)
         
+        from PySide6.QtGui import QIcon
         from ..resources import RESOURCE_DIR
         
         port_icon = QLabel()
