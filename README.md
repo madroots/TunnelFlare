@@ -1,16 +1,13 @@
 # TunnelFlare
 
-A modern, high-fidelity GUI for managing Cloudflare Tunnels on Linux. Designed for a seamless development experience with a focus on speed and visual clarity.
+Expose local apps instantly and securely through Cloudflare tunnels — no account required. Turn localhost into a secure public URL with one click.
 
 ## Features
-
+- **No Account Needed**: You don't need cloudflare account - create tunnels immediately with zero configuration.
 - **Tunnel Management**: Create, start, stop, and delete tunnels through an intuitive interface.
-- **Real-time Monitoring**: Integrated live log viewer and status indicators.
 - **Quick Actions**: One-click URL copying, browser access, and QR code generation for mobile testing.
-- **Desktop Integration**: Full system tray support and AppImage distribution.
 
 ## Visuals
-
 <table border="0" style="border: none; border-collapse: collapse;">
   <tr>
     <td style="border: none;">
@@ -24,14 +21,16 @@ A modern, high-fidelity GUI for managing Cloudflare Tunnels on Linux. Designed f
   </tr>
 </table>
 
-## Installation
+## Quick Start
 
-### AppImage (Recommended)
-Download the latest `TunnelFlare-x86_64.AppImage` from the releases page and run:
-```bash
-chmod +x TunnelFlare-x86_64.AppImage
-./TunnelFlare-x86_64.AppImage
-```
+### Recommended: Gear Lever
+
+**[Gear Lever](https://github.com/mijorus/gearlever)** is the recommended way to manage your AppImages.  
+It seamlessly integrates them into your system menu and handles updates.
+
+1. Download the latest `.AppImage` from the [Releases](https://github.com/madroots/TunnelFlare/releases) page.  
+2. Drag & Drop `TunnelFlare.AppImage` into Gear Lever and click **Install/run**.
+
 
 ### Development Setup
 Requirements: Python 3.8+, Cloudflared CLI.
