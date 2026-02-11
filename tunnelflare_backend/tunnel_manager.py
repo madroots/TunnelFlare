@@ -50,25 +50,31 @@ class TunnelManager:
 
         # Start cloudflared
         try:
+            url = f"{protocol}://localhost:{port}"
+            
             # Platform specific subprocess flags
-            log_handle = open(log_file, 'w', encoding='utf-8')
-            kwargs = {
-                "stdout": log_handle,
-                "stderr": subprocess.STDOUT,
-            }
-            
             if sys.platform == "win32":
-                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+                # On Windows, using --logfile is much more reliable than shell redirection
+                cmd = ["cloudflared", "tunnel", "--url", url, "--logfile", str(log_file)]
+                kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": subprocess.DEVNULL,
+                    "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    "shell": True
+                }
             else:
-                kwargs["start_new_session"] = True
+                log_handle = open(log_file, 'w', encoding='utf-8')
+                cmd = ["cloudflared", "tunnel", "--url", url]
+                kwargs = {
+                    "stdout": log_handle,
+                    "stderr": subprocess.STDOUT,
+                    "start_new_session": True
+                }
 
-            process = subprocess.Popen(
-                ["cloudflared", "tunnel", "--url", url],
-                **kwargs
-            )
+            process = subprocess.Popen(cmd, **kwargs)
             
-            # Close the handle in the parent process so we don't hold a lock
-            log_handle.close()
+            if sys.platform != "win32":
+                log_handle.close()
             
             with open(pid_file, 'w') as f:
                 f.write(str(process.pid))
@@ -128,6 +134,7 @@ class TunnelManager:
         
         try:
             # On Windows, use sharing-friendly read
+            # We use 'r' and let Python handle encoding issues with 'ignore'
             with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
@@ -156,7 +163,7 @@ class TunnelManager:
                 with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
                     return f.read()
             except (PermissionError, OSError):
-                return "Loading logs (file locked)..."
+                return "Loading logs (file locked or cloudflared initializing)..."
         return None
 
     def get_active_tunnels(self):
