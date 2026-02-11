@@ -95,7 +95,8 @@ class TunnelManager:
             # Platform specific subprocess flags
             if sys.platform == "win32":
                 # On Windows, using --logfile is much more reliable than shell redirection
-                cmd = [cf_path, "tunnel", "--url", url, "--logfile", str(log_file)]
+                # Add --no-autoupdate to prevent hangs and --loglevel debug for visibility
+                cmd = [cf_path, "tunnel", "--no-autoupdate", "--loglevel", "info", "--url", url, "--logfile", str(log_file)]
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
                     "stderr": subprocess.DEVNULL,
@@ -113,6 +114,11 @@ class TunnelManager:
             self._log(f"Executing: {' '.join(cmd)}")
             process = subprocess.Popen(cmd, **kwargs)
             
+            # Check if it died immediately (e.g. invalid flags or binary error)
+            time.sleep(0.5)
+            if process.poll() is not None:
+                raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}")
+
             if sys.platform != "win32":
                 log_handle.close()
             
@@ -179,14 +185,23 @@ class TunnelManager:
             # We use 'r' and let Python handle encoding issues with 'ignore'
             with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
+            
+            if not content:
+                return None
+                
             matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
             if matches:
                  return matches[-1]
-        except (PermissionError, OSError):
+                 
+            # If no match but we have content, log a snippet for debugging if it's been a while
+            if len(content) > 0 and len(content) < 500:
+                self._log(f"Log content for {tunnel_id} ({len(content)} bytes): {content[:100]}...")
+        except (PermissionError, OSError) as e:
             # Windows might lock the file while cloudflared writes to it
+            self._log(f"Log read lock for {tunnel_id}: {str(e)}")
             return None
-        except Exception:
-            pass
+        except Exception as e:
+            self._log(f"Log read error for {tunnel_id}: {str(e)}")
         return None
 
     def get_logs_by_name(self, name):
