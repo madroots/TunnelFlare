@@ -14,9 +14,33 @@ class TunnelManager:
         self.dirs = self.config_manager.get_dirs()
         self.tunnels_dir = self.dirs["tunnels"]
         self.logs_dir = self.dirs["logs"]
+        self.debug_log = self.config_manager.config_dir / "debug.log"
+
+    def _log(self, message):
+        with open(self.debug_log, 'a', encoding='utf-8') as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+
+    def _get_cloudflared_path(self):
+        # 1. Check in sys._MEIPASS (Windows PyInstaller)
+        if hasattr(sys, '_MEIPASS'):
+            ext = ".exe" if sys.platform == "win32" else ""
+            path = Path(sys._MEIPASS) / f"cloudflared{ext}"
+            if path.exists(): 
+                return str(path)
+
+        # 2. Check in APPDIR (Linux AppImage)
+        appdir = os.environ.get('APPDIR')
+        if appdir:
+            path = Path(appdir) / "usr" / "bin" / "cloudflared"
+            if path.exists(): return str(path)
+
+        # 3. Check in system PATH
+        return shutil.which("cloudflared")
 
     def check_dependencies(self):
-        return shutil.which("cloudflared") is not None
+        path = self._get_cloudflared_path()
+        self._log(f"Dependency check: cloudflared found at {path}")
+        return path is not None
 
     def generate_tunnel_id(self, name):
         # Sanitize name
@@ -51,26 +75,29 @@ class TunnelManager:
         # Start cloudflared
         try:
             url = f"{protocol}://localhost:{port}"
+            cf_path = self._get_cloudflared_path()
+            if not cf_path:
+                raise RuntimeError("cloudflared binary not found")
             
             # Platform specific subprocess flags
             if sys.platform == "win32":
                 # On Windows, using --logfile is much more reliable than shell redirection
-                cmd = ["cloudflared", "tunnel", "--url", url, "--logfile", str(log_file)]
+                cmd = [cf_path, "tunnel", "--url", url, "--logfile", str(log_file)]
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
                     "stderr": subprocess.DEVNULL,
-                    "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP,
-                    "shell": True
+                    "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
                 }
             else:
                 log_handle = open(log_file, 'w', encoding='utf-8')
-                cmd = ["cloudflared", "tunnel", "--url", url]
+                cmd = [cf_path, "tunnel", "--url", url]
                 kwargs = {
                     "stdout": log_handle,
                     "stderr": subprocess.STDOUT,
                     "start_new_session": True
                 }
 
+            self._log(f"Executing: {' '.join(cmd)}")
             process = subprocess.Popen(cmd, **kwargs)
             
             if sys.platform != "win32":
@@ -79,8 +106,10 @@ class TunnelManager:
             with open(pid_file, 'w') as f:
                 f.write(str(process.pid))
             
+            self._log(f"Started tunnel {tunnel_id} (PID: {process.pid})")
             return tunnel_id
         except Exception as e:
+            self._log(f"Error starting tunnel: {str(e)}")
             # Cleanup on failure
             if pid_file.exists(): pid_file.unlink()
             if config_file.exists(): config_file.unlink()

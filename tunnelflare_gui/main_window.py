@@ -113,6 +113,7 @@ class MainWindow(QMainWindow):
             self.detail_view.toggle_btn.setEnabled(False)
 
         def run_action():
+            error_msg = None
             try:
                 if tunnel_id:
                     self.tunnel_manager.stop_tunnel(tunnel_id)
@@ -122,10 +123,19 @@ class MainWindow(QMainWindow):
                     if config:
                         self.tunnel_manager.start_tunnel(config['name'], config['port'])
             except Exception as e:
-                # We could signal an error back, but for now just log/warn
-                print(f"Error toggling tunnel {name}: {e}")
+                error_msg = str(e)
             
-            # The refresh_timer will eventually pick up the new state
+            # Update UI on main thread
+            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
+            def show_error(msg):
+                QMessageBox.critical(self, "Tunnel Error", f"Failed to toggle tunnel: {msg}")
+                self.detail_view.toggle_btn.setEnabled(True)
+                self.detail_view.refresh_state()
+
+            if error_msg:
+                QTimer.singleShot(0, lambda: show_error(error_msg))
+            else:
+                QTimer.singleShot(0, lambda: self.detail_view.refresh_state())
         
         thread = threading.Thread(target=run_action, daemon=True)
         thread.start()
