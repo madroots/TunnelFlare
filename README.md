@@ -11,11 +11,18 @@ A modern, high-fidelity GUI for managing Cloudflare Tunnels on Linux. Designed f
 
 ## Visuals
 
-![App Home Screen](./screenshots/home.png)
-*Home Screen showcasing active environments.*
-
-![Tunnel Details](./screenshots/details.png)
-*Detailed view with logs and action controls.*
+<table border="0" style="border: none; border-collapse: collapse;">
+  <tr>
+    <td style="border: none;">
+      <img width="425" alt="Home Screen" src="https://github.com/user-attachments/assets/721ee374-ad05-4706-b531-7a670ec91fa5"><br>
+      <i>Home Screen showcasing active environments.</i>
+    </td>
+    <td style="border: none;">
+      <img width="425" alt="Detailed View" src="https://github.com/user-attachments/assets/aaa79aeb-3ee8-4719-9dd2-c6d63c17618f"><br>
+      <i>Detailed view with logs and action controls.</i>
+    </td>
+  </tr>
+</table>
 
 ## Installation
 
