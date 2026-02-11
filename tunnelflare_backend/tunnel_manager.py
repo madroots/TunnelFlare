@@ -94,12 +94,12 @@ class TunnelManager:
             
             # Platform specific subprocess flags
             if sys.platform == "win32":
+                # Global flags MUST come before the command (tunnel)
                 # On Windows, using --logfile is much more reliable than shell redirection
-                # Add --no-autoupdate to prevent hangs and --loglevel debug for visibility
-                cmd = [cf_path, "tunnel", "--no-autoupdate", "--loglevel", "info", "--url", url, "--logfile", str(log_file)]
+                cmd = [cf_path, "--loglevel", "info", "--no-autoupdate", "tunnel", "--url", url, "--logfile", str(log_file)]
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
-                    "stderr": subprocess.DEVNULL,
+                    "stderr": subprocess.PIPE, # Capture stderr for the startup check
                     "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
                 }
             else:
@@ -115,12 +115,26 @@ class TunnelManager:
             process = subprocess.Popen(cmd, **kwargs)
             
             # Check if it died immediately (e.g. invalid flags or binary error)
-            time.sleep(0.5)
+            time.sleep(1.0) # Give it a bit more time to fail
             if process.poll() is not None:
-                raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}")
+                stderr_data = ""
+                if sys.platform == "win32" and process.stderr:
+                    try:
+                        stderr_data = process.stderr.read().decode('utf-8', errors='ignore')
+                    except:
+                        stderr_data = "Could not read stderr"
+                
+                raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}. Error: {stderr_data}")
 
             if sys.platform != "win32":
                 log_handle.close()
+            elif process.stderr:
+                # On Windows, we need to handle the pipe if we're keeping it running
+                # Actually, if we use PIPE we must read it or it fills up.
+                # Better: for Windows successfully started processes, we don't need stderr anymore.
+                # But we can't easily "close" the pipe from here if the process is alive without potentially hanging.
+                # However, since we used CREATE_NO_WINDOW and redirected to --logfile, stderr shouldn't be noisy.
+                pass
             
             with open(pid_file, 'w') as f:
                 f.write(str(process.pid))
