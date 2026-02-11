@@ -1,6 +1,4 @@
-from pathlib import Path
-
-RESOURCE_PATH = Path(__file__).parent / "resources"
+from .resources import RESOURCE_DIR
 
 from PySide6.QtGui import QIcon, QAction
 from PySide6.QtCore import QTimer
@@ -59,7 +57,7 @@ class MainWindow(QMainWindow):
         self.tray_icon = QSystemTrayIcon(self)
         try:
              # Try custom icon
-             icon = QIcon(str(RESOURCE_PATH / "tray.svg"))
+             icon = QIcon(str(RESOURCE_DIR / "tray.svg"))
              if icon.isNull():
                  # Fallback
                  icon = QApplication.style().standardIcon(QApplication.style().SP_ComputerIcon)

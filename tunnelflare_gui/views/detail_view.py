@@ -6,7 +6,7 @@ from ..styles import Styles
 from ..components.tunnel_row import TunnelRow 
 from ..dialogs.confirm_dialog import ConfirmDialog
 
-RESOURCE_PATH = Path(__file__).parent.parent / "resources"
+from ..resources import RESOURCE_DIR
 
 class DetailView(QWidget):
     back_requested = Signal()
@@ -31,7 +31,7 @@ class DetailView(QWidget):
         header_layout = QHBoxLayout()
         self.back_btn = QPushButton(" Back")
         self.back_btn.setObjectName("BackButton")
-        self.back_btn.setIcon(QIcon(str(RESOURCE_PATH / "back.svg")))
+        self.back_btn.setIcon(QIcon(str(RESOURCE_DIR / "back.svg")))
         self.back_btn.setIconSize(QSize(18, 18))
         self.back_btn.setCursor(Qt.PointingHandCursor)
         self.back_btn.clicked.connect(self.back_requested.emit)
@@ -42,7 +42,7 @@ class DetailView(QWidget):
         self.delete_btn = QPushButton()
         self.delete_btn.setObjectName("BackButton") # Reuse ghost style
         self.delete_btn.setCursor(Qt.PointingHandCursor)
-        self.delete_btn.setIcon(QIcon(str(RESOURCE_PATH / "delete.svg")))
+        self.delete_btn.setIcon(QIcon(str(RESOURCE_DIR / "delete.svg")))
         self.delete_btn.setIconSize(QSize(24, 24))
         self.delete_btn.clicked.connect(self.handle_delete)
         header_layout.addWidget(self.delete_btn)
@@ -79,7 +79,7 @@ class DetailView(QWidget):
         port_layout.setSpacing(6)
         
         self.port_icon = QLabel()
-        self.port_icon.setPixmap(QIcon(str(RESOURCE_PATH / "port.svg")).pixmap(16, 16))
+        self.port_icon.setPixmap(QIcon(str(RESOURCE_DIR / "port.svg")).pixmap(16, 16))
         
         self.port_label = QLabel("PORT --")
         self.port_label.setObjectName("PortLabel")
@@ -117,14 +117,14 @@ class DetailView(QWidget):
         actions_layout.setSpacing(12)
         
         self.qr_btn = QPushButton(" QR Code")
-        self.qr_btn.setIcon(QIcon(str(RESOURCE_PATH / "qr.svg")))
+        self.qr_btn.setIcon(QIcon(str(RESOURCE_DIR / "qr.svg")))
         self.qr_btn.setIconSize(QSize(20, 20))
         self.qr_btn.setMinimumHeight(48)
         self.qr_btn.setCursor(Qt.PointingHandCursor)
         self.qr_btn.clicked.connect(self.show_qr)
         
         self.open_btn = QPushButton(" Open Link")
-        self.open_btn.setIcon(QIcon(str(RESOURCE_PATH / "open.svg")))
+        self.open_btn.setIcon(QIcon(str(RESOURCE_DIR / "open.svg")))
         self.open_btn.setIconSize(QSize(20, 20))
         self.open_btn.setMinimumHeight(48)
         self.open_btn.setCursor(Qt.PointingHandCursor)
@@ -146,7 +146,7 @@ class DetailView(QWidget):
         logs_header_layout.setSpacing(6)
         
         logs_icon = QLabel()
-        logs_icon.setPixmap(QIcon(str(RESOURCE_PATH / "logs.svg")).pixmap(16, 16))
+        logs_icon.setPixmap(QIcon(str(RESOURCE_DIR / "logs.svg")).pixmap(16, 16))
         
         logs_label = QLabel("LIVE LOGS")
         logs_label.setObjectName("PortLabel")

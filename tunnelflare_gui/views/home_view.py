@@ -4,8 +4,7 @@ from PySide6.QtGui import QIcon
 from ..components.tunnel_row import TunnelRow
 from ..styles import Styles
 
-from pathlib import Path
-RESOURCE_PATH = Path(__file__).parent.parent / "resources"
+from ..resources import RESOURCE_DIR
 
 class HomeView(QWidget):
     add_requested = Signal()
@@ -43,7 +42,7 @@ class HomeView(QWidget):
         add_btn.setFixedSize(46, 46)
         add_btn.setCursor(Qt.PointingHandCursor)
         
-        add_btn.setIcon(QIcon(str(RESOURCE_PATH / "add.svg")))
+        add_btn.setIcon(QIcon(str(RESOURCE_DIR / "add.svg")))
         add_btn.setIconSize(QSize(30, 30))
         
         add_btn.clicked.connect(self.add_requested.emit)

@@ -3,8 +3,7 @@ from PySide6.QtGui import QColor, QCursor, QIcon, QPixmap
 from PySide6.QtCore import Qt, Signal
 from ..styles import Styles
 
-from pathlib import Path
-RESOURCE_PATH = Path(__file__).parent.parent / "resources"
+from ..resources import RESOURCE_DIR
 
 class TunnelRow(QFrame):
     clicked = Signal(dict) # Emits tunnel data
@@ -88,7 +87,7 @@ class TunnelRow(QFrame):
         
         self.port_icon = QLabel()
         # We can use QIcon + pixmap for simpler label display
-        pixmap = QIcon(str(RESOURCE_PATH / "port.svg")).pixmap(16, 16)
+        pixmap = QIcon(str(RESOURCE_DIR / "port.svg")).pixmap(16, 16)
         self.port_icon.setPixmap(pixmap)
         self.port_icon.setFixedSize(16, 16)
         self.port_icon.setScaledContents(True)

@@ -1,14 +1,14 @@
-name: Build AppImage
+name: Build TunnelFlare
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, windows-compatibility ]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-linux:
+    name: Build Linux AppImage
     runs-on: ubuntu-latest
-
     steps:
     - uses: actions/checkout@v4
 
@@ -24,103 +24,84 @@ jobs:
 
     - name: Prepare AppDir (Niess Python Base)
       run: |
-        # Download Base Image (Python 3.9 via Niess)
         wget https://github.com/niess/python-appimage/releases/download/python3.9/python3.9.25-cp39-cp39-manylinux2014_x86_64.AppImage -O python.AppImage
         chmod +x python.AppImage
-        
-        # Extract
         ./python.AppImage --appimage-extract
         mv squashfs-root AppDir
-        
-        # Cleanup
         rm python.AppImage
 
     - name: Install Application
       run: |
-        # The python binary inside AppDir
         PYTHON=./AppDir/opt/python3.9/bin/python3.9
         PIP=./AppDir/opt/python3.9/bin/pip3.9
-        
-        # Upgrade pip and install the app forcefully to ensure latest code
         $PYTHON -m pip install --upgrade pip
         $PIP install --force-reinstall --no-cache-dir .
-        
-        # Install PySide6 explicitly if needed? No, setup.py handles it.
-        # Note: PySide6 might need libxcb libs which might be missing in manylinux2014 base?
-        # Usually they bundle correct wheels.
 
     - name: Configure AppDir
       run: |
-        # Purge ALL existing identity metadata to avoid identity theft from the base image
         find AppDir -name "*.desktop" -delete
-        find AppDir -name "*.xml" -delete # Purge AppStream/Metainfo
+        find AppDir -name "*.xml" -delete
         find AppDir -name "*.metainfo" -delete
-        
-        # Copy Icons
         cp -f tunnelflare_gui/resources/tray.svg AppDir/tunnelflare.svg
         ln -sf tunnelflare.svg AppDir/.DirIcon
-        
-        # Create our clean Desktop file at the root
         cat > AppDir/tunnelflare.desktop <<EOF
-        [Desktop Entry]
-        Type=Application
-        Name=TunnelFlare
-        Exec=tunnelflare
-        Icon=tunnelflare
-        Categories=Network;Development;
-        Comment=A modern GUI for Cloudflare Tunnels
-        Terminal=false
-        EOF
-        
-        # IMPORTANT: Purge ALL existing AppRun files
+[Desktop Entry]
+Type=Application
+Name=TunnelFlare
+Exec=tunnelflare
+Icon=tunnelflare
+Categories=Network;Development;
+Comment=A modern GUI for Cloudflare Tunnels
+Terminal=false
+EOF
         find AppDir -name AppRun -delete
-        
-        # Create a bulletproof root-level AppRun
         cat > AppDir/AppRun <<'EOF'
-        #!/bin/bash
-        # Log startup for debugging desktop integration
-        LOG="/tmp/tunnelflare-apprun.log"
-        echo "--- $(date) ---" > $LOG
-        echo "Starting AppRun" >> $LOG
-        echo "HERE (before): $HERE" >> $LOG
-
-        # Get absolute path to the AppImage mount point
-        HERE=$(dirname "$(readlink -f "$0")")
-        echo "HERE (resolved): $HERE" >> $LOG
-
-        # Setup Python and App Environment
-        export PYTHONHOME="$HERE/opt/python3.9"
-        export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
-        export PATH="$HERE/opt/python3.9/bin:$PATH"
-        
-        # Qt/PySide6 specific library paths
-        export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
-        export QT_PLUGIN_PATH="$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/plugins"
-        
-        # Ensure X11/Display authorization is passed if available
-        if [ -z "$XAUTHORITY" ] && [ -e "$HOME/.Xauthority" ]; then
-            export XAUTHORITY="$HOME/.Xauthority"
-            echo "Set XAUTHORITY to $XAUTHORITY" >> $LOG
-        fi
-        
-        # Fix for some Linux distros where Qt might have issues with shared memory
-        export QT_X11_NO_MITSHM=1
-
-        # Run via python module
-        echo "Executing: $HERE/opt/python3.9/bin/python3.9 -m main $@" >> $LOG
-        exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@" 2>> $LOG
-        EOF
-        
+#!/bin/bash
+HERE=$(dirname "$(readlink -f "$0")")
+export PYTHONHOME="$HERE/opt/python3.9"
+export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
+export PATH="$HERE/opt/python3.9/bin:$PATH"
+export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
+export QT_PLUGIN_PATH="$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/plugins"
+export QT_X11_NO_MITSHM=1
+exec "$HERE/opt/python3.9/bin/python3.9" -m main "$@"
+EOF
         chmod +x AppDir/AppRun
 
     - name: Package AppImage
       env:
         ARCH: x86_64
-      run: |
-        ./appimagetool-x86_64.AppImage AppDir TunnelFlare-x86_64.AppImage
+      run: ./appimagetool-x86_64.AppImage AppDir TunnelFlare-x86_64.AppImage
 
-    - name: Archive production artifacts
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: TunnelFlare-AppImage
-        path: TunnelFlare*.AppImage
+        name: TunnelFlare-Linux
+        path: TunnelFlare-x86_64.AppImage
+
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller psutil PySide6 qrcode Pillow
+        pip install .
+
+    - name: Build with PyInstaller
+      run: |
+        pyinstaller --noconsole --onefile --name TunnelFlare --add-data "tunnelflare_gui/resources;tunnelflare_gui/resources" main.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: TunnelFlare-Windows
+        path: dist/TunnelFlare.exe
