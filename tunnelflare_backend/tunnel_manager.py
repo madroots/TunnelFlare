@@ -124,7 +124,12 @@ class TunnelManager:
                     except:
                         stderr_data = "Could not read stderr"
                 
-                raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}. Error: {stderr_data}")
+                if "forbidden by its access permissions" in stderr_data:
+                    error_msg = "Firewall or Antivirus is blocking the connection to Cloudflare. Please add an exclusion for TunnelFlare."
+                else:
+                    error_msg = stderr_data if stderr_data else "Unknown startup error"
+                
+                raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}. {error_msg}")
 
             if sys.platform != "win32":
                 log_handle.close()
