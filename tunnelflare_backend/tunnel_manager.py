@@ -51,14 +51,13 @@ class TunnelManager:
         # Start cloudflared
         try:
             # Platform specific subprocess flags
+            log_handle = open(log_file, 'w', encoding='utf-8')
             kwargs = {
-                "stdout": open(log_file, 'w'),
+                "stdout": log_handle,
                 "stderr": subprocess.STDOUT,
             }
             
             if sys.platform == "win32":
-                # CREATE_NO_WINDOW prevents terminal flash
-                # CREATE_NEW_PROCESS_GROUP allows better process group management
                 kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
             else:
                 kwargs["start_new_session"] = True
@@ -67,6 +66,9 @@ class TunnelManager:
                 ["cloudflared", "tunnel", "--url", url],
                 **kwargs
             )
+            
+            # Close the handle in the parent process so we don't hold a lock
+            log_handle.close()
             
             with open(pid_file, 'w') as f:
                 f.write(str(process.pid))
@@ -125,10 +127,15 @@ class TunnelManager:
             return None
         
         try:
-            content = log_file.read_text(errors='ignore')
+            # On Windows, use sharing-friendly read
+            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read()
             matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
             if matches:
                  return matches[-1]
+        except (PermissionError, OSError):
+            # Windows might lock the file while cloudflared writes to it
+            return None
         except Exception:
             pass
         return None
@@ -145,7 +152,11 @@ class TunnelManager:
         
         log_file = self.logs_dir / f"{target_id}.log"
         if log_file.exists():
-            return log_file.read_text(errors='ignore')
+            try:
+                with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+            except (PermissionError, OSError):
+                return "Loading logs (file locked)..."
         return None
 
     def get_active_tunnels(self):
