@@ -30,6 +30,12 @@ jobs:
         mv squashfs-root AppDir
         rm python.AppImage
 
+    - name: Bundle cloudflared
+      run: |
+        mkdir -p AppDir/usr/bin
+        wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O AppDir/usr/bin/cloudflared
+        chmod +x AppDir/usr/bin/cloudflared
+
     - name: Install Application
       run: |
         PYTHON=./AppDir/opt/python3.9/bin/python3.9
@@ -60,7 +66,7 @@ jobs:
         HERE=$(dirname "$(readlink -f "$0")")
         export PYTHONHOME="$HERE/opt/python3.9"
         export PYTHONPATH="$HERE/opt/python3.9/lib/python3.9/site-packages"
-        export PATH="$HERE/opt/python3.9/bin:$PATH"
+        export PATH="$HERE/opt/python3.9/bin:$HERE/usr/bin:$PATH"
         export LD_LIBRARY_PATH="$HERE/opt/python3.9/lib:$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/lib:$LD_LIBRARY_PATH"
         export QT_PLUGIN_PATH="$HERE/opt/python3.9/lib/python3.9/site-packages/PySide6/Qt/plugins"
         export QT_X11_NO_MITSHM=1
@@ -96,9 +102,13 @@ jobs:
         pip install pyinstaller psutil PySide6 qrcode Pillow
         pip install .
 
+    - name: Download cloudflared
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -OutFile "cloudflared.exe"
+
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconsole --onefile --name TunnelFlare --add-data "tunnelflare_gui/resources;tunnelflare_gui/resources" main.py
+        pyinstaller --noconsole --onefile --name TunnelFlare --add-data "tunnelflare_gui/resources;tunnelflare_gui/resources" --add-data "cloudflared.exe;." main.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
