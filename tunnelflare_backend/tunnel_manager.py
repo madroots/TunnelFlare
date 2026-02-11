@@ -14,6 +14,7 @@ class TunnelManager:
         self.dirs = self.config_manager.get_dirs()
         self.tunnels_dir = self.dirs["tunnels"]
         self.logs_dir = self.dirs["logs"]
+        self.bin_dir = self.dirs["bin"]
         self.debug_log = self.config_manager.config_dir / "debug.log"
         
         # Initial diagnostic entry
@@ -28,24 +29,35 @@ class TunnelManager:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
 
     def _get_cloudflared_path(self):
-        # 1. Check in sys._MEIPASS (Windows PyInstaller)
+        # 1. Identify bundled path
+        bundled_path = None
         if hasattr(sys, '_MEIPASS'):
             ext = ".exe" if sys.platform == "win32" else ""
-            path = Path(sys._MEIPASS) / f"cloudflared{ext}"
-            if path.exists(): 
-                return str(path)
-            # If we're on Windows, check if it's in the root of the MEIPASS or the current dir
-            if sys.platform == "win32":
-                p2 = Path(sys.executable).parent / "cloudflared.exe"
-                if p2.exists(): return str(p2)
+            bundled_path = Path(sys._MEIPASS) / f"cloudflared{ext}"
+        elif os.environ.get('APPDIR'):
+            bundled_path = Path(os.environ.get('APPDIR')) / "usr" / "bin" / "cloudflared"
 
-        # 2. Check in APPDIR (Linux AppImage)
-        appdir = os.environ.get('APPDIR')
-        if appdir:
-            path = Path(appdir) / "usr" / "bin" / "cloudflared"
-            if path.exists(): return str(path)
+        # 2. If bundled, sync to persistent bin dir for firewall consistency
+        if bundled_path and bundled_path.exists():
+            persistent_path = self.bin_dir / bundled_path.name
+            
+            # Update if not exists or size mismatch (quick check)
+            if not persistent_path.exists() or persistent_path.stat().st_size != bundled_path.stat().st_size:
+                try:
+                    self._log(f"Syncing bundled binary: {bundled_path} -> {persistent_path}")
+                    # On Windows, the file might be locked if a tunnel is running.
+                    # We should handle this gracefully.
+                    shutil.copy2(bundled_path, persistent_path)
+                    if sys.platform != "win32":
+                        persistent_path.chmod(0o755)
+                except (PermissionError, OSError) as e:
+                    self._log(f"Persistent binary sync skipped (possibly locked): {e}")
+                    # If it exists, use it anyway (likely already correct version)
+                    if persistent_path.exists(): return str(persistent_path)
+                    return str(bundled_path) # Absolute fallback to temp path
+            return str(persistent_path)
 
-        # 3. Check in system PATH
+        # 3. Check in system PATH as fallback
         return shutil.which("cloudflared")
 
     def check_dependencies(self):

@@ -8,6 +8,7 @@ class ConfigManager:
         self.config_file = self.config_dir / "config.json"
         self.tunnels_dir = self.config_dir / "tunnels"
         self.logs_dir = self.config_dir / "logs"
+        self.bin_dir = self.config_dir / "bin"
         self._ensure_directories()
         self.config = self._load_config()
 
@@ -15,6 +16,7 @@ class ConfigManager:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.tunnels_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.bin_dir.mkdir(parents=True, exist_ok=True)
 
     def _load_config(self):
         if not self.config_file.exists():
@@ -72,5 +74,6 @@ class ConfigManager:
         return {
             "config": self.config_dir,
             "tunnels": self.tunnels_dir,
-            "logs": self.logs_dir
+            "logs": self.logs_dir,
+            "bin": self.bin_dir
         }
