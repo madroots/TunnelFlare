@@ -230,4 +230,39 @@ class Styles:
         padding: 14px;
         font-size: 12px;
     }}
+
+    /* Tray Menu & Tooltips */
+    QMenu {{
+        background-color: {THEME["card"]};
+        color: {THEME["text_main"]};
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        padding: 4px;
+    }}
+    QMenu::item {{
+        padding: 8px 24px;
+        border-radius: 6px;
+        margin: 2px 4px;
+    }}
+    QMenu::item:selected {{
+        background-color: {THEME["accent"]};
+        color: white;
+    }}
+    QMenu::separator {{
+        height: 1px;
+        background: rgba(255, 255, 255, 0.1);
+        margin: 4px 8px;
+    }}
+
+    /* Message Boxes & Dialogs */
+    QMessageBox {{
+        background-color: {THEME["bg"]};
+    }}
+    QMessageBox QLabel {{
+        color: {THEME["text_main"]};
+        font-size: 14px;
+    }}
+    QMessageBox QPushButton {{
+        min-width: 80px;
+    }}
     """

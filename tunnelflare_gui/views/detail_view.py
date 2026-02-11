@@ -129,15 +129,9 @@ class DetailView(QWidget):
         self.open_btn.setMinimumHeight(48)
         self.open_btn.setCursor(Qt.PointingHandCursor)
         self.open_btn.clicked.connect(self.open_url)
-
-        self.debug_btn = QPushButton(" Debug")
-        self.debug_btn.setMinimumHeight(48)
-        self.debug_btn.setCursor(Qt.PointingHandCursor)
-        self.debug_btn.clicked.connect(self.show_debug)
         
         actions_layout.addWidget(self.qr_btn, 1)
         actions_layout.addWidget(self.open_btn, 1)
-        actions_layout.addWidget(self.debug_btn, 1)
         layout.addLayout(actions_layout)
         
         # Toggle Button (Prominent at bottom)
@@ -310,13 +304,6 @@ class DetailView(QWidget):
         text = self.url_text.text()
         if "http" in text:
             QDesktopServices.openUrl(QUrl(text))
-
-    def show_debug(self):
-        from ..dialogs.log_viewer import LogViewerDialog
-        path = self.tunnel_manager.get_debug_log_path()
-        dialog = LogViewerDialog(path, self)
-        dialog.setWindowTitle("Internal Debug Logs")
-        dialog.exec()
 
     def show_qr(self):
         text = self.url_text.text()

@@ -231,16 +231,37 @@ class TunnelManager:
                 target_id = t['id']
                 break
         
-        if not target_id: return None
-        
+        # If not active, but we have a config, use the name as ID (default)
+        if not target_id:
+            target_id = name
+
+        # 1. Get Tunnel Logs
+        tunnel_logs = ""
         log_file = self.logs_dir / f"{target_id}.log"
         if log_file.exists():
             try:
                 with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                    return f.read()
+                    tunnel_logs = f.read()
             except (PermissionError, OSError):
-                return "Loading logs (file locked or cloudflared initializing)..."
-        return None
+                tunnel_logs = "(Tunnel log file is currently locked by cloudflared...)\n"
+
+        # 2. Get Internal Debug Logs (last 20 lines)
+        debug_header = "\n" + "="*40 + "\n   INTERNAL SYSTEM LOGS (DIAGNOSTICS)\n" + "="*40 + "\n"
+        debug_logs = ""
+        if self.debug_log.exists():
+             try:
+                 with open(self.debug_log, 'r', encoding='utf-8', errors='ignore') as f:
+                     lines = f.readlines()
+                     # Filter for relevant logs (containing tunnel_id or name)
+                     relevant = [l for l in lines if target_id in l or name in l or "---" in l]
+                     debug_logs = "".join(relevant[-20:])
+             except:
+                 pass
+        
+        if not tunnel_logs and not debug_logs:
+            return "No logs found for this tunnel yet."
+            
+        return f"{tunnel_logs}{debug_header}{debug_logs}"
 
     def get_active_tunnels(self):
         tunnels = []
