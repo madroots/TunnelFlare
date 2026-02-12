@@ -1,5 +1,5 @@
 import sys
-from PySide6.QtWidgets import QApplication
+from tunnelflare_gui.single_instance import SingleInstanceApp
 from tunnelflare_gui.main_window import MainWindow
 from tunnelflare_gui.styles import Styles
 import signal
@@ -21,12 +21,13 @@ def setup_bundled_path():
 
 def main():
     setup_bundled_path()
-    app = QApplication(sys.argv)
+    app = SingleInstanceApp(sys.argv, "TunnelFlare_Main_App")
     app.setStyleSheet(Styles.STYLESHEET)
     # Allow headers/fonts to look better on high DPI
     # QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling) # PySide6 handles this mostly
 
     window = MainWindow()
+    app.set_main_window(window)
     window.show()
     
     # Handle Ctrl+C
