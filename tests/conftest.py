@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -16,6 +17,15 @@ def tunnelflare_home(tmp_path, monkeypatch):
     home = tmp_path / "tunnelflare-home"
     monkeypatch.setenv("TUNNELFLARE_HOME", str(home))
     return home
+
+
+@pytest.fixture
+def listening_port():
+    """A localhost port with something listening on it, like a running dev server."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen()
+        yield server.getsockname()[1]
 
 
 @pytest.fixture

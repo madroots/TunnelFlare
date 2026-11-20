@@ -1,4 +1,5 @@
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -6,6 +7,8 @@ from pathlib import Path
 
 import psutil
 import pytest
+
+from tunnelflare_backend.tunnel_manager import DEBUG_LOG_KEEP, TunnelManager
 
 
 def wait_until(predicate, timeout=15.0):
@@ -17,13 +20,17 @@ def wait_until(predicate, timeout=15.0):
     return False
 
 
+def status_of(manager, name):
+    return next((t["status"] for t in manager.get_active_tunnels() if t["name"] == name), None)
+
+
 def test_start_reports_public_url_and_stop_terminates(manager, fake_cloudflared):
     tunnel_id = manager.start_tunnel("my api", 3000)
 
-    assert wait_until(lambda: manager.get_public_url(tunnel_id))
+    assert wait_until(lambda: status_of(manager, "my api") == "Running")
     assert manager.get_public_url(tunnel_id) == "https://fake-tunnel-test.trycloudflare.com"
     [tunnel] = manager.get_active_tunnels()
-    assert (tunnel["id"], tunnel["name"], tunnel["port"], tunnel["status"]) == ("my_api", "my api", "3000", "Running")
+    assert (tunnel["id"], tunnel["name"], tunnel["port"]) == ("my_api", "my api", "3000")
 
     assert manager.stop_tunnel(tunnel_id)
     assert not psutil.pid_exists(tunnel["pid"])
@@ -37,7 +44,40 @@ def test_api_host_in_cloudflared_errors_is_not_the_tunnel_url(manager, fake_clou
 
     assert wait_until(lambda: log.exists() and "api.trycloudflare.com" in log.read_text(encoding="utf-8"))
     assert manager.get_public_url(tunnel_id) is None
-    assert manager.get_active_tunnels()[0]["status"] == "Initializing"
+    assert status_of(manager, "slow") == "Initializing"
+
+
+def test_dropped_edge_connection_is_reported_as_reconnecting(manager, fake_cloudflared):
+    fake_cloudflared(mode="drop")
+    manager.start_tunnel("flaky", 3000)
+
+    assert wait_until(lambda: status_of(manager, "flaky") == "Reconnecting")
+
+
+def test_https_origin_and_host_rewrite_reach_cloudflared(manager, fake_cloudflared):
+    tunnel_id = manager.start_tunnel("secure", 8443, protocol="https", rewrite_host=True)
+    log = manager.logs_dir / f"{tunnel_id}.log"
+
+    assert wait_until(lambda: log.exists() and "Arguments:" in log.read_text(encoding="utf-8"))
+    arguments = next(line for line in log.read_text(encoding="utf-8").splitlines() if "Arguments:" in line)
+    assert "--url https://" in arguments and ":8443" in arguments
+    assert "--http-host-header localhost:8443" in arguments
+    assert "--no-tls-verify" in arguments
+
+
+def test_each_start_begins_with_a_fresh_log(manager, fake_cloudflared):
+    tunnel_id = manager.start_tunnel("api", 3000)
+    log = manager.logs_dir / f"{tunnel_id}.log"
+    assert wait_until(lambda: status_of(manager, "api") == "Running")
+    with open(log, "a", encoding="utf-8") as stale:
+        stale.write("INF |  https://stale-run.trycloudflare.com  |\n")
+    assert manager.get_public_url(tunnel_id) == "https://stale-run.trycloudflare.com"
+    manager.stop_tunnel(tunnel_id)
+
+    tunnel_id = manager.start_tunnel("api", 3000)
+    assert wait_until(lambda: status_of(manager, "api") == "Running")
+    assert manager.get_public_url(tunnel_id) == "https://fake-tunnel-test.trycloudflare.com"
+    assert "stale-run" not in log.read_text(encoding="utf-8")
 
 
 def test_startup_failure_raises_and_leaves_no_tunnel_behind(manager, fake_cloudflared):
@@ -47,6 +87,15 @@ def test_startup_failure_raises_and_leaves_no_tunnel_behind(manager, fake_cloudf
         manager.start_tunnel("api", 3000)
     assert list(manager.tunnels_dir.iterdir()) == []
     assert manager.get_active_tunnels() == []
+
+
+def test_port_check_sees_listening_servers(listening_port):
+    assert TunnelManager.is_port_listening(listening_port)
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free_port = probe.getsockname()[1]
+    assert not TunnelManager.is_port_listening(free_port)
 
 
 def test_reused_pid_is_never_reported_or_terminated(manager):
@@ -84,6 +133,19 @@ def test_stopped_tunnel_logs_are_found_by_name(manager, fake_cloudflared):
     manager.stop_tunnel(tunnel_id)
 
     assert "fake-tunnel-test.trycloudflare.com" in manager.get_logs_by_name("my api")
+
+
+def test_debug_log_is_capped(tunnelflare_home):
+    tunnelflare_home.mkdir(parents=True)
+    lines = [f"[2026-01-01 00:00:00] old diagnostic line {number:07d}\n" for number in range(40_000)]
+    (tunnelflare_home / "debug.log").write_text("".join(lines), encoding="utf-8")
+
+    TunnelManager()
+
+    kept = (tunnelflare_home / "debug.log").read_text(encoding="utf-8")
+    assert len(kept.encode()) < DEBUG_LOG_KEEP + 4096
+    assert lines[-1] in kept and lines[0] not in kept
+    assert kept.startswith("[2026-01-01")  # trimmed at a line boundary
 
 
 def test_frozen_build_runs_refreshed_copy_of_bundled_cloudflared(manager, tmp_path, monkeypatch):

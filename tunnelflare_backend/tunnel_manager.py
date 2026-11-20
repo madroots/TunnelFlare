@@ -3,12 +3,23 @@ import os
 import time
 import re
 import shutil
+import socket
 import sys
 import psutil
 from pathlib import Path
-from tunnelflare_backend.config_manager import ConfigManager
+from tunnelflare_backend.config_manager import ConfigManager, tunnel_id_for
 
 QUICK_TUNNEL_URL = re.compile(r"https://([a-zA-Z0-9-]+)\.trycloudflare\.com")
+# cloudflared log lines that mark the edge connection going up and down
+CONNECTED_MARKER = "Registered tunnel connection"
+DISCONNECTED = re.compile(
+    r"Unregistered tunnel connection|Retrying connection in|Serve tunnel error"
+    r"|Connection terminated|Lost connection with the edge|failed to serve tunnel connection",
+    re.IGNORECASE,
+)
+DEBUG_LOG_LIMIT = 1024 * 1024  # trim debug.log beyond 1 MiB ...
+DEBUG_LOG_KEEP = 256 * 1024  # ... down to its last 256 KiB
+
 
 class TunnelManager:
     def __init__(self):
@@ -18,7 +29,9 @@ class TunnelManager:
         self.logs_dir = self.dirs["logs"]
         self.bin_dir = self.dirs["bin"]
         self.debug_log = self.config_manager.config_dir / "debug.log"
-        
+        self._log_scan = {}  # tunnel_id -> incremental parse state of its cloudflared log
+        self._trim_debug_log()
+
         # Initial diagnostic entry
         self._log("--- TunnelManager initialized ---")
         self._log(f"Platform: {sys.platform}")
@@ -29,6 +42,20 @@ class TunnelManager:
     def _log(self, message):
         with open(self.debug_log, 'a', encoding='utf-8') as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+
+    def _trim_debug_log(self):
+        try:
+            if self.debug_log.stat().st_size <= DEBUG_LOG_LIMIT:
+                return
+            with open(self.debug_log, 'rb') as f:
+                f.seek(-DEBUG_LOG_KEEP, os.SEEK_END)
+                tail = f.read()
+            tail = tail[tail.find(b"\n") + 1:]  # drop the partial first line
+            staged = self.debug_log.with_name(self.debug_log.name + ".tmp")
+            staged.write_bytes(tail)
+            os.replace(staged, self.debug_log)
+        except OSError:
+            pass
 
     def _bundled_cloudflared(self):
         """cloudflared shipped inside a frozen (PyInstaller) build; None when running from source."""
@@ -78,12 +105,19 @@ class TunnelManager:
         return path is not None
 
     @staticmethod
-    def _sanitize(name):
-        return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+    def is_port_listening(port, timeout=0.3):
+        """True if something accepts TCP connections on localhost:port (IPv4 or IPv6)."""
+        for host in ("127.0.0.1", "::1"):
+            try:
+                with socket.create_connection((host, int(port)), timeout=timeout):
+                    return True
+            except OSError:
+                continue
+        return False
 
     def generate_tunnel_id(self, name):
         # Sanitize name
-        clean_name = self._sanitize(name)
+        clean_name = tunnel_id_for(name)
         # Ensure uniqueness
         if not (self.tunnels_dir / f"{clean_name}.pid").exists():
             return clean_name
@@ -93,7 +127,7 @@ class TunnelManager:
             counter += 1
         return f"{clean_name}_{counter}"
 
-    def start_tunnel(self, name, port, protocol="http"):
+    def start_tunnel(self, name, port, protocol="http", rewrite_host=False):
         if not self.check_dependencies():
             raise RuntimeError("cloudflared is not installed")
 
@@ -102,8 +136,7 @@ class TunnelManager:
         stderr_file = self.logs_dir / f"{tunnel_id}.stderr.log"
         pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
         config_file = self.tunnels_dir / f"{tunnel_id}.config"
-
-        url = f"{protocol}://localhost:{port}"
+        protocol = "https" if protocol == "https" else "http"
 
         # Write config metadata
         with open(config_file, 'w', encoding='utf-8') as f:
@@ -111,6 +144,13 @@ class TunnelManager:
             f.write(f"PORT={port}\n")
             f.write(f"PROTOCOL={protocol}\n")
             f.write(f"START_TIME={time.time()}\n")
+
+        # Every run starts with a fresh log on every OS
+        self._log_scan.pop(tunnel_id, None)
+        try:
+            log_file.unlink(missing_ok=True)
+        except OSError:
+            pass
 
         # Start cloudflared
         output_handle = None
@@ -126,6 +166,12 @@ class TunnelManager:
             # is often blocked by firewalls, and cloudflared's fallback can take minutes.
             # Global flags MUST come before the command (tunnel)
             cmd = [cf_path, "--no-autoupdate", "tunnel", "--protocol", "http2", "--edge-ip-version", "4", "--url", url]
+            if rewrite_host:
+                # Dev servers (Vite, webpack, Django) reject unknown Host headers
+                cmd += ["--http-host-header", f"localhost:{port}"]
+            if protocol == "https":
+                # Local HTTPS dev servers use self-signed certificates
+                cmd += ["--no-tls-verify"]
 
             # Platform specific subprocess flags
             if sys.platform == "win32":
@@ -226,6 +272,7 @@ class TunnelManager:
         config_file = self.tunnels_dir / f"{tunnel_id}.config"
         if pid_file.exists(): pid_file.unlink()
         if config_file.exists(): config_file.unlink()
+        self._log_scan.pop(tunnel_id, None)
 
     def _tunnel_process(self, pid_file):
         """The live cloudflared process recorded in pid_file, or None if it has exited.
@@ -257,35 +304,46 @@ class TunnelManager:
             except ChildProcessError:
                 pass
 
-    def get_public_url(self, tunnel_id):
+    def _scan_log(self, tunnel_id):
+        """(public URL or None, connection state) parsed from the tunnel's log.
+
+        Reads only what cloudflared appended since the last call. The state is
+        "starting" until the first edge connection registers, then "connected",
+        or "reconnecting" after the connection drops.
+        """
         log_file = self.logs_dir / f"{tunnel_id}.log"
-        if not log_file.exists():
-            return None
-        
+        scan = self._log_scan.get(tunnel_id)
         try:
-            # On Windows, use sharing-friendly read
-            # We use 'r' and let Python handle encoding issues with 'ignore'
-            with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            if not content:
-                return None
-                
-            # Skip api.trycloudflare.com, which appears in cloudflared's error messages
-            hosts = [host for host in QUICK_TUNNEL_URL.findall(content) if host != "api"]
-            if hosts:
-                 return f"https://{hosts[-1]}.trycloudflare.com"
-                 
-            # If no match but we have content, log a snippet for debugging if it's been a while
-            if len(content) > 0 and len(content) < 500:
-                self._log(f"Log content for {tunnel_id} ({len(content)} bytes): {content[:100]}...")
-        except (PermissionError, OSError) as e:
-            # Windows might lock the file while cloudflared writes to it
-            self._log(f"Log read lock for {tunnel_id}: {str(e)}")
-            return None
-        except Exception as e:
-            self._log(f"Log read error for {tunnel_id}: {str(e)}")
-        return None
+            size = log_file.stat().st_size
+        except OSError:
+            return (scan["url"], scan["state"]) if scan else (None, "starting")
+        if scan is None or size < scan["offset"]:
+            scan = {"offset": 0, "partial": "", "url": None, "state": "starting"}
+            self._log_scan[tunnel_id] = scan
+        if size > scan["offset"]:
+            try:
+                # Windows: cloudflared may hold the file briefly; try again next time
+                with open(log_file, 'rb') as f:
+                    f.seek(scan["offset"])
+                    chunk = f.read(size - scan["offset"])
+            except OSError:
+                return scan["url"], scan["state"]
+            scan["offset"] += len(chunk)
+            lines = (scan["partial"] + chunk.decode('utf-8', errors='ignore')).split("\n")
+            scan["partial"] = lines.pop()  # keep an unfinished last line for later
+            for line in lines:
+                # Skip api.trycloudflare.com, which appears in cloudflared's error messages
+                hosts = [host for host in QUICK_TUNNEL_URL.findall(line) if host != "api"]
+                if hosts:
+                    scan["url"] = f"https://{hosts[-1]}.trycloudflare.com"
+                if CONNECTED_MARKER in line:
+                    scan["state"] = "connected"
+                elif scan["state"] == "connected" and DISCONNECTED.search(line):
+                    scan["state"] = "reconnecting"
+        return scan["url"], scan["state"]
+
+    def get_public_url(self, tunnel_id):
+        return self._scan_log(tunnel_id)[0]
 
     def get_logs_by_name(self, name):
         active = self.get_active_tunnels()
@@ -297,7 +355,7 @@ class TunnelManager:
         
         # If not active, fall back to the default ID (the sanitized name)
         if not target_id:
-            target_id = self._sanitize(name)
+            target_id = tunnel_id_for(name)
 
         # 1. Get Tunnel Logs
         tunnel_logs = ""
@@ -328,6 +386,8 @@ class TunnelManager:
         return f"{tunnel_logs}{debug_header}{debug_logs}"
 
     def get_active_tunnels(self):
+        """Running tunnels. "status" is Initializing (no URL yet), Connecting (URL
+        allocated, edge connection not up yet), Running, or Reconnecting."""
         tunnels = []
         for pid_file in self.tunnels_dir.glob("*.pid"):
             tunnel_id = pid_file.stem
@@ -352,7 +412,11 @@ class TunnelManager:
                     if line.startswith("PORT="): port = line[5:]
                     if line.startswith("PROTOCOL="): protocol = line[9:]
 
-            public_url = self.get_public_url(tunnel_id)
+            public_url, state = self._scan_log(tunnel_id)
+            if not public_url:
+                status = "Initializing"
+            else:
+                status = {"connected": "Running", "reconnecting": "Reconnecting"}.get(state, "Connecting")
             
             tunnels.append({
                 "id": tunnel_id,
@@ -361,9 +425,10 @@ class TunnelManager:
                 "protocol": protocol,
                 "pid": pid,
                 "public_url": public_url,
-                "status": "Running" if public_url else "Initializing"
+                "status": status,
             })
             
         return tunnels
+
     def get_debug_log_path(self):
         return str(self.debug_log)
