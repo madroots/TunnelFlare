@@ -30,8 +30,8 @@ from pathlib import Path
 from tunnelflare_backend.net import ssl_context
 
 REQUIRED_RESOURCES = [
-    "add.svg", "back.svg", "copy.svg", "delete.svg", "edit.svg", "logs.svg", "open.svg", "port.svg", "qr.svg",
-    "tray.svg", "check.svg",
+    "add.svg", "alert.svg", "back.svg", "check.svg", "close.svg", "copy.svg", "delete.svg", "edit.svg",
+    "open.svg", "qr.svg", "tray.svg", "update.svg",
     "fonts/Inter-Regular.ttf", "fonts/Inter-Medium.ttf", "fonts/Inter-SemiBold.ttf",
     "fonts/Inter-Bold.ttf", "fonts/JetBrainsMono-Regular.ttf",
 ]
@@ -144,16 +144,27 @@ def _check_fonts():
 
 
 def _check_svg(resource_dir):
+    from PySide6.QtCore import QSizeF
     from PySide6.QtGui import QIcon
+    from tunnelflare_gui.icons import tinted_pixmap
+
+    def painted(image):
+        return [(x, y) for y in range(image.height()) for x in range(image.width()) if image.pixelColor(x, y).alpha()]
 
     for name in ("tray.svg", "add.svg", "delete.svg"):
         image = QIcon(str(resource_dir / name)).pixmap(64, 64).toImage()
-        painted = not image.isNull() and any(
-            image.pixelColor(x, y).alpha() for y in range(image.height()) for x in range(image.width())
-        )
-        if not painted:
+        if image.isNull() or not painted(image):
             raise SelfTestError(f"{name} rendered empty (Qt SVG plugins missing?)")
-    return "tray.svg, add.svg, delete.svg rendered"
+    # Tinted icons must fill their box at any pixel ratio, not just a corner of it
+    pixmap = tinted_pixmap("alert.svg", "#ff8a00", 22)
+    image = pixmap.toImage()
+    pixels = painted(image)
+    if pixmap.deviceIndependentSize() != QSizeF(22, 22) or not pixels:
+        raise SelfTestError(f"tinted icon is {pixmap.deviceIndependentSize()} and {len(pixels)} painted pixels")
+    span = max(x for x, _ in pixels) - min(x for x, _ in pixels) + 1
+    if span < image.width() * 0.7:
+        raise SelfTestError(f"tinted icon covers {span} of {image.width()} px")
+    return "tray.svg, add.svg, delete.svg rendered; tinted icons fill their box"
 
 
 def _check_qr():

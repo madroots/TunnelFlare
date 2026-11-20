@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPalette
 from PySide6.QtWidgets import QApplication
 
 from tunnelflare_backend import __version__
+from .focus import KeyboardFocusMarker
 from .resources import RESOURCE_DIR
 from .styles import Styles
 
@@ -68,5 +69,8 @@ def create_application(argv):
     app.setFont(font)
     app.setPalette(dark_palette())
     app.setStyleSheet(Styles.STYLESHEET)
+    if not hasattr(app, "_focus_marker"):
+        app._focus_marker = KeyboardFocusMarker(app)
+        app.installEventFilter(app._focus_marker)
     app.setWindowIcon(QIcon(str(RESOURCE_DIR / "tray.svg")))
     return app

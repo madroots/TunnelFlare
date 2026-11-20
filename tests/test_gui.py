@@ -4,11 +4,13 @@ import socket
 import pytest
 import qrcode
 from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, QSystemTrayIcon
+from PySide6.QtWidgets import QApplication, QDialog, QPushButton, QSystemTrayIcon
 
 from tunnelflare_backend import updater
 from tunnelflare_gui import selftest
 from tunnelflare_gui.application import create_application
+from tunnelflare_gui.dialogs import message_dialog
+from tunnelflare_gui.dialogs.message_dialog import MessageDialog
 from tunnelflare_gui.dialogs.qr_code import render_qr_image
 from tunnelflare_gui.dialogs.tunnel_dialog import TunnelDialog
 from tunnelflare_gui.styles import Styles
@@ -19,6 +21,13 @@ def app(qapp):
     return create_application([])
 
 
+def close_window(main_window):
+    main_window._quitting = True  # let it close without quitting the test app
+    main_window.refresh_timer.stop()
+    main_window.tray_icon.hide()
+    main_window.tunnel_manager.stop_all()
+
+
 @pytest.fixture
 def window(app, qtbot):
     from tunnelflare_gui.main_window import MainWindow
@@ -26,16 +35,21 @@ def window(app, qtbot):
     main_window = MainWindow()
     qtbot.addWidget(main_window)
     yield main_window
-    main_window._quitting = True  # let qtbot close it without quitting the test app
-    main_window.refresh_timer.stop()
-    main_window.tray_icon.hide()
-    main_window.tunnel_manager.stop_all()
+    close_window(main_window)
 
 
 def free_port():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+def click_when_shown(text):
+    """Stand-in for MessageDialog.exec: click the button labelled `text`."""
+    def exec_(dialog):
+        next(button for button in dialog.findChildren(QPushButton) if button.text() == text).click()
+        return dialog.result()
+    return exec_
 
 
 def test_every_stylesheet_weight_uses_its_bundled_face(app):
@@ -76,11 +90,13 @@ def test_home_cards_are_updated_in_place(window, fake_cloudflared, listening_por
     window.config_manager.add_tunnel("api", listening_port)
     window.home_view.refresh()
     card = window.home_view.rows["api"]
-    assert card.badge.text() == "OFFLINE"
+    assert card.status_label.text() == "Stopped"
+    assert window.home_view.subtitle.text() == "0 of 1 online"
 
     window.tunnel_manager.start_tunnel("api", listening_port)
-    qtbot.waitUntil(lambda: window.home_view.refresh() or card.badge.text() == "ONLINE", timeout=15_000)
+    qtbot.waitUntil(lambda: window.home_view.refresh() or card.status_label.text() == "Online", timeout=15_000)
     assert window.home_view.rows["api"] is card
+    assert window.home_view.subtitle.text() == "1 of 1 online"
 
 
 def test_cards_open_from_the_keyboard(window, qtbot):
@@ -92,9 +108,75 @@ def test_cards_open_from_the_keyboard(window, qtbot):
     assert opened.args == ["api"]
 
 
+def test_focus_ring_follows_the_keyboard_only(window, qtbot):
+    window.config_manager.add_tunnel("api", 3000)
+    window.home_view.refresh()
+    window.show()
+    window.activateWindow()
+    qtbot.waitUntil(lambda: QApplication.activeWindow() is window)
+    card = window.home_view.rows["api"]
+
+    qtbot.mouseClick(card, Qt.LeftButton)  # opens the details
+    window.go_home()
+    assert card.hasFocus() and not card.property("focusVisible")  # no ring left behind
+
+    card.clearFocus()
+    card.setFocus(Qt.TabFocusReason)
+    assert card.property("focusVisible") is True
+
+
+def test_card_switch_starts_and_stops_the_tunnel(window, qtbot, fake_cloudflared, listening_port):
+    window.config_manager.add_tunnel("api", listening_port)
+    window.home_view.refresh()
+    card = window.home_view.rows["api"]
+
+    card.switch.click()
+    assert card.status_label.text() == "Starting…" and not card.switch.isEnabled()
+    qtbot.waitUntil(lambda: window.refresh_current_view() or card.status_label.text() == "Online", timeout=15_000)
+    assert card.switch.isChecked() and card.switch.isEnabled()
+    assert card.link.isVisibleTo(card)
+
+    card.switch.click()
+    qtbot.waitUntil(lambda: not window._busy and not window.tunnel_manager.get_active_tunnels(), timeout=15_000)
+    window.refresh_current_view()
+    assert not card.switch.isChecked() and card.status_label.text() == "Stopped"
+
+
+def test_card_switch_snaps_back_when_start_is_cancelled(window, monkeypatch):
+    monkeypatch.setattr(window, "_confirm_start_without_server", lambda config: False)
+    window.config_manager.add_tunnel("api", free_port())
+    window.home_view.refresh()
+    card = window.home_view.rows["api"]
+
+    card.switch.click()
+
+    assert not card.switch.isChecked()
+    assert window.tunnel_manager.get_active_tunnels() == []
+
+
+def test_clicking_a_card_link_copies_it_without_opening_details(window, qtbot, fake_cloudflared, listening_port):
+    window.config_manager.add_tunnel("api", listening_port)
+    window.tunnel_manager.start_tunnel("api", listening_port)
+    window.show()
+    card = None
+
+    def link_shown():
+        nonlocal card
+        window.refresh_current_view()
+        card = window.home_view.rows["api"]
+        return card.link.isVisible()
+
+    qtbot.waitUntil(link_shown, timeout=15_000)
+    qtbot.mouseClick(card.link, Qt.LeftButton)
+
+    assert QApplication.clipboard().text() == "https://fake-tunnel-test.trycloudflare.com"
+    assert window.toast.isVisible() and window.toast.text() == "Link copied"
+    assert window.stack.currentWidget() is window.home_view
+
+
 def test_failed_start_reports_error_and_unlocks_controls(window, qtbot, monkeypatch, listening_port):
     errors = []
-    monkeypatch.setattr(QMessageBox, "critical", lambda parent, title, text: errors.append(text))
+    monkeypatch.setattr(message_dialog, "inform", lambda parent, title, text, **kwargs: errors.append((title, text)))
     monkeypatch.setattr(window.tunnel_manager, "_get_cloudflared_path", lambda: None)
     window.config_manager.add_tunnel("api", listening_port)
     window.go_to_detail("api")
@@ -103,10 +185,11 @@ def test_failed_start_reports_error_and_unlocks_controls(window, qtbot, monkeypa
     assert not window.detail_view.delete_btn.isEnabled()
 
     qtbot.waitUntil(lambda: bool(errors), timeout=10_000)
-    assert "cloudflared is not installed" in errors[0]
+    assert errors[0][0] == "Couldn’t start “api”"
+    assert "cloudflared is not installed" in errors[0][1]
     assert window.detail_view.toggle_btn.isEnabled()
     assert window.detail_view.delete_btn.isEnabled()
-    assert window.detail_view.toggle_btn.text() == "Turn ON"
+    assert window.detail_view.toggle_btn.text() == "Start Tunnel"
 
 
 def test_delete_and_edit_stay_locked_until_start_finishes(window, qtbot, fake_cloudflared, listening_port):
@@ -132,16 +215,17 @@ def test_link_buttons_wait_until_the_tunnel_connects(window, qtbot, fake_cloudfl
     fake_cloudflared(url_delay=60)
     window.tunnel_manager.start_tunnel("api", listening_port)
     view.refresh_state()
-    assert view.url_text.text() == "Allocating URL..."
+    assert view.url_placeholder.text() == "Requesting a link from Cloudflare…"
+    assert not view.url_text.isVisibleTo(view)
     assert not view.open_btn.isEnabled() and not view.qr_btn.isEnabled()
 
     window.tunnel_manager.stop_all()
     fake_cloudflared()
     window.tunnel_manager.start_tunnel("api", listening_port)
     qtbot.waitUntil(lambda: view.refresh_state() or view.open_btn.isEnabled(), timeout=15_000)
-    assert view.badge.text() == "ONLINE" and view.qr_btn.isEnabled()
+    assert view.status_label.text() == "Online" and view.qr_btn.isEnabled()
     assert view.url_text.text() == "fake-tunnel-test.trycloudflare.com"
-    assert view.url_text.toolTip() == "https://fake-tunnel-test.trycloudflare.com"
+    assert view.link_panel.toolTip() == "Copy https://fake-tunnel-test.trycloudflare.com"
 
 
 def test_starting_with_nothing_listening_asks_first(window, fake_cloudflared, monkeypatch):
@@ -201,21 +285,45 @@ def test_closing_with_a_system_tray_hides_to_it(window, qtbot, monkeypatch):
     assert window.config_manager.get("tray_hint_shown") is True
 
 
+def test_window_reopens_at_the_size_it_was_left(window, qtbot):
+    from tunnelflare_gui.main_window import MIN_HEIGHT, MainWindow
+
+    window.show()
+    window.resize(window.width(), MIN_HEIGHT + 37)
+    window._quitting = True
+    window.close()
+
+    reopened = MainWindow()
+    qtbot.addWidget(reopened)
+    try:
+        assert reopened.height() == MIN_HEIGHT + 37
+    finally:
+        close_window(reopened)
+
+
 def test_quitting_with_running_tunnels_lets_the_user_decide(window, fake_cloudflared, listening_port, monkeypatch):
     window.config_manager.add_tunnel("api", listening_port)
     window.tunnel_manager.start_tunnel("api", listening_port)
 
-    monkeypatch.setattr(window, "_ask_quit_choice", lambda count: None)
+    monkeypatch.setattr(MessageDialog, "exec", click_when_shown("Cancel"))
     assert window.eventFilter(QApplication.instance(), QEvent(QEvent.Quit)) is True  # quit vetoed
     assert window.tunnel_manager.get_active_tunnels()
 
-    monkeypatch.setattr(window, "_ask_quit_choice", lambda count: "keep")
+    monkeypatch.setattr(MessageDialog, "exec", click_when_shown("Keep Running and Quit"))
     assert window._confirm_quit() is True
     assert window.tunnel_manager.get_active_tunnels()
 
-    monkeypatch.setattr(window, "_ask_quit_choice", lambda count: "stop")
+    monkeypatch.setattr(MessageDialog, "exec", click_when_shown("Stop Tunnels and Quit"))
     assert window._confirm_quit() is True
     assert window.tunnel_manager.get_active_tunnels() == []
+
+
+def test_message_dialog_reports_the_clicked_button(app, qtbot):
+    # Buttons are displayed in a different order than given; the choice must not be
+    dialog = MessageDialog(None, "Delete “api”?", "Text", [("Cancel", "secondary"), ("Delete", "destructive")])
+    qtbot.addWidget(dialog)
+    next(button for button in dialog.findChildren(QPushButton) if button.text() == "Delete").click()
+    assert dialog.choice == 1 and dialog.result() == QDialog.Accepted
 
 
 def test_tray_menu_switches_tunnels(window, qtbot, fake_cloudflared, listening_port):
@@ -234,17 +342,25 @@ def test_tray_menu_switches_tunnels(window, qtbot, fake_cloudflared, listening_p
     assert "1 tunnel running" in window.tray_icon.toolTip()
 
 
-def test_tunnel_dialog_rejects_names_already_in_use(window, monkeypatch):
-    warnings = []
-    monkeypatch.setattr(QMessageBox, "warning", lambda parent, title, text: warnings.append(text))
+def test_tunnel_dialog_explains_problems_under_the_fields(window, listening_port):
     window.config_manager.add_tunnel("my api", 3000)
 
     dialog = TunnelDialog(window, window.config_manager)
     dialog.name_input.setText("My_API")
-    dialog.port_input.setText("4000")
+    dialog.port_input.setText("70000")
     dialog.validate_and_accept()
     assert dialog.result() != QDialog.Accepted
-    assert "my api" in warnings[0]
+    assert dialog.name_error.isVisibleTo(dialog) and "my api" in dialog.name_error.text()
+    assert dialog.port_hint.text() == "Enter a port from 1 to 65535."
+
+    # Messages update as the user fixes the fields
+    dialog.name_input.setText("web")
+    dialog.port_input.setText(str(listening_port))
+    dialog._check_port()  # the check runs once typing pauses
+    assert not dialog.name_error.isVisibleTo(dialog)
+    assert dialog.port_hint.text() == f"●  Your app is running on port {listening_port}."
+    dialog.validate_and_accept()
+    assert dialog.result() == QDialog.Accepted
 
     # Editing may keep the tunnel's own name; the options come back with the data
     edit = TunnelDialog(window, window.config_manager, window.config_manager.get_tunnel("my api"))
