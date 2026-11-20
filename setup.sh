@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -e
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
 # Colors
 RED='\033[0;31m'
@@ -13,6 +14,11 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║          TunnelFlare Installation Wizard           ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════════════════╝${NC}"
 echo ""
+
+if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' 2>/dev/null; then
+    echo -e "${RED}❌ Python 3.11 or newer is required (found: $(python3 --version 2>&1)).${NC}"
+    exit 1
+fi
 
 echo -e "Choose installation method:"
 echo -e "${GREEN}1) Local Virtual Environment (Recommended)${NC}"
@@ -45,7 +51,7 @@ case $choice in
         echo -e "${BLUE}Activating venv and installing dependencies...${NC}"
         source .venv/bin/activate
         pip install --upgrade pip
-        pip install .
+        pip install --require-hashes -r requirements.txt
         
         # Create run script
         cat > run.sh << 'EOF'

@@ -1,5 +1,5 @@
 @echo off
-set SCRIPT_DIR=%~dp0
+set "SCRIPT_DIR=%~dp0"
 if not exist "%SCRIPT_DIR%.venv" (
     echo Virtual environment not found. Please run setup.bat first.
     pause

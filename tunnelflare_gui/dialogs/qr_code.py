@@ -1,8 +1,32 @@
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QPushButton
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtGui import QPixmap, QImage, QPainter
 from PySide6.QtCore import Qt
 import qrcode
-from io import BytesIO
+
+
+def render_qr_image(data, box_size=10, border=2):
+    """Paint the QR code for ``data`` as black modules on white, ``box_size`` px each."""
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=box_size,
+        border=border,
+    )
+    qr.add_data(data)
+    qr.make(fit=True)
+    matrix = qr.get_matrix()  # includes the quiet-zone border
+
+    size = len(matrix) * box_size
+    image = QImage(size, size, QImage.Format_RGB32)
+    image.fill(Qt.white)
+    painter = QPainter(image)
+    for y, row in enumerate(matrix):
+        for x, dark in enumerate(row):
+            if dark:
+                painter.fillRect(x * box_size, y * box_size, box_size, box_size, Qt.black)
+    painter.end()
+    return image
+
 
 class QRCodeDialog(QDialog):
     def __init__(self, url, parent=None):
@@ -17,22 +41,7 @@ class QRCodeDialog(QDialog):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(20)
 
-        # Generate QR Code
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_L,
-            box_size=10,
-            border=2,
-        )
-        qr.add_data(self.url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        
-        # Convert to QPixmap
-        buffer = BytesIO()
-        img.save(buffer, format="PNG")
-        qimg = QImage.fromData(buffer.getvalue())
-        pixmap = QPixmap.fromImage(qimg)
+        pixmap = QPixmap.fromImage(render_qr_image(self.url))
 
         # Display
         qr_label = QLabel()
