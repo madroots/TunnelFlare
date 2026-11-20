@@ -6,7 +6,7 @@ Expose local apps instantly and securely through Cloudflare tunnels — no accou
 - **No Account Needed**: You don't need a Cloudflare account. Create tunnels immediately with zero configuration.
 - **Tunnel Management**: Create, edit, start, stop and delete tunnels. The status shows when a tunnel is starting, online or reconnecting.
 - **Works with dev servers**: HTTPS local servers (self-signed certificates are fine), and an option to send requests as `localhost` for dev servers that reject unknown hosts (Vite, webpack, Django).
-- **Quick Actions**: One-click URL copying, browser access, and QR code generation for mobile testing.
+- **Quick Actions**: Switch tunnels on and off right from the list, click a public link to copy it, open it in the browser, or show a QR code for mobile testing.
 - **Runs in the tray**: switch tunnels on and off from the tray menu. When you quit with tunnels running, TunnelFlare asks whether to stop them.
 - **Automatic updates**: TunnelFlare checks for new versions once a day, then downloads, verifies and installs them.
 
@@ -14,12 +14,12 @@ Expose local apps instantly and securely through Cloudflare tunnels — no accou
 <table border="0" style="border: none; border-collapse: collapse;">
   <tr>
     <td style="border: none;">
-      <img width="425" alt="Home Screen" src="https://github.com/user-attachments/assets/721ee374-ad05-4706-b531-7a670ec91fa5"><br>
-      <i>Home Screen showcasing active environments.</i>
+      <img width="420" alt="Home screen" src="docs/images/home.png"><br>
+      <i>Every tunnel with its status, public link and on/off switch.</i>
     </td>
     <td style="border: none;">
-      <img width="425" alt="Detailed View" src="https://github.com/user-attachments/assets/aaa79aeb-3ee8-4719-9dd2-c6d63c17618f"><br>
-      <i>Detailed view with logs and action controls.</i>
+      <img width="420" alt="Tunnel details" src="docs/images/details.png"><br>
+      <i>Details: copy or open the link, QR code, start/stop and live logs.</i>
     </td>
   </tr>
 </table>
