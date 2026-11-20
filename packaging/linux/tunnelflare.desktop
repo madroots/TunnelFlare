@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=TunnelFlare
+Comment=Create and manage Cloudflare tunnels
+Exec=TunnelFlare
+Icon=tunnelflare
+Categories=Network;Development;
+Terminal=false

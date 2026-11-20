@@ -81,7 +81,7 @@ jobs:
           cache-dependency-path: requirements-dev.txt
       - name: Install Linux packaging tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y $LINUX_QT_PACKAGES zsync xvfb xauth
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_QT_PACKAGES xvfb xauth
       - name: Install locked dependencies
         run: python -m pip install --require-hashes -r requirements-dev.txt
       - name: Check that the tag matches the app version
