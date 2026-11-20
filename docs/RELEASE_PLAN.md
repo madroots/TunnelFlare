@@ -40,12 +40,15 @@ proxies, and on locked-down machines.
   `pip --require-hashes`).
 - **Same look**: Qt's Fusion style, a fixed dark palette that ignores the OS
   light/dark setting, and bundled fonts at a fixed pixel size. The stylesheet names
-  only bundled font families.
+  only bundled font families and uses only weights 400–700, which every OS font
+  engine maps to the same faces (macOS CoreText maps ExtraBold differently).
 - **Same behaviour**: config in `~/.tunnelflare` everywhere. Closing the window
   hides the app to the tray (left-click restores it). Quit leaves running tunnels
-  up, and they are rediscovered on the next launch. The cloudflared command line is
-  identical except for transport flags kept from earlier Windows networking fixes
-  (`--protocol http2 --edge-ip-version 4`, and `127.0.0.1` instead of `localhost`).
+  up, and they are rediscovered on the next launch. cloudflared runs with the same
+  flags everywhere: `--protocol http2 --edge-ip-version 4`, because QUIC over UDP is
+  often blocked and cloudflared's fallback can take minutes (CI saw this on macOS).
+  Only Windows dials `127.0.0.1` instead of `localhost`, kept from earlier Windows
+  networking fixes.
 - **Proof**: CI uploads a screenshot of the main window from each OS's packaged
   app with every build, for side-by-side comparison.
 

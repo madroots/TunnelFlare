@@ -122,11 +122,14 @@ class TunnelManager:
             if not cf_path:
                 raise RuntimeError("cloudflared binary not found")
             
+            # Same transport on every OS: HTTP/2 over TCP to an IPv4 edge. QUIC (UDP 7844)
+            # is often blocked by firewalls, and cloudflared's fallback can take minutes.
+            # Global flags MUST come before the command (tunnel)
+            cmd = [cf_path, "--no-autoupdate", "tunnel", "--protocol", "http2", "--edge-ip-version", "4", "--url", url]
+
             # Platform specific subprocess flags
             if sys.platform == "win32":
-                # Global flags MUST come before the command (tunnel)
-                # Force http2 and IPv4 for better compatibility through Windows firewalls
-                cmd = [cf_path, "--no-autoupdate", "tunnel", "--protocol", "http2", "--edge-ip-version", "4", "--url", url, "--logfile", str(log_file)]
+                cmd += ["--logfile", str(log_file)]
                 # stderr goes to a file: an unread pipe fills up and stalls cloudflared
                 output_file = stderr_file
                 output_handle = open(output_file, 'w', encoding='utf-8')
@@ -138,7 +141,6 @@ class TunnelManager:
             else:
                 output_file = log_file
                 output_handle = open(output_file, 'w', encoding='utf-8')
-                cmd = [cf_path, "--no-autoupdate", "tunnel", "--url", url]
                 kwargs = {
                     "stdout": output_handle,
                     "stderr": subprocess.STDOUT,

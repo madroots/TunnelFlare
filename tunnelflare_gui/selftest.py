@@ -13,6 +13,7 @@ import http.server
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import ssl
@@ -22,6 +23,7 @@ import tempfile
 import threading
 import time
 import traceback
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -216,10 +218,16 @@ def _check_e2e(manager):
     token = secrets.token_hex(16)
     server = _serve(token)
     context = _ssl_context()
+    last_response = ["no request sent"]
     tunnel_id = manager.start_tunnel("selftest-e2e", server.server_address[1])
+    log = manager.logs_dir / f"{tunnel_id}.log"
     try:
         url = _wait_for(lambda: manager.get_public_url(tunnel_id), 90, "the quick tunnel URL")
-        _wait_for(lambda: _fetch(url, token, context), 120, f"{url} to serve the local page")
+        _wait_for(lambda: "Registered tunnel connection" in _read_text(log), 90, "cloudflared to connect to Cloudflare")
+        _wait_for(lambda: _fetch(url, token, context, last_response), 120, f"{url} to serve the local page")
+    except SelfTestError as exc:
+        tail = "\n".join(_read_text(log).splitlines()[-40:])
+        raise SelfTestError(f"{exc}\nlast response: {last_response[0]}\ncloudflared log (tail):\n{tail}") from None
     finally:
         manager.stop_tunnel(tunnel_id)
         server.shutdown()
@@ -227,6 +235,13 @@ def _check_e2e(manager):
     if any(t["id"] == tunnel_id for t in manager.get_active_tunnels()):
         raise SelfTestError("tunnel still running after stop")
     return f"{url} served the local page; tunnel stopped"
+
+
+def _read_text(path):
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
 
 
 def _serve(token):
@@ -259,13 +274,19 @@ def _ssl_context():
     return context
 
 
-def _fetch(url, token, context):
+def _fetch(url, token, context, last_response):
     request = urllib.request.Request(url, headers={"User-Agent": "TunnelFlare-selftest"})
     try:
         with urllib.request.urlopen(request, timeout=15, context=context) as response:
-            return response.status == 200 and token in response.read().decode("utf-8", "replace")
-    except (OSError, ValueError):
-        return False
+            body = response.read().decode("utf-8", "replace")
+            last_response[0] = f"HTTP {response.status}: {body[:80]!r}"
+            return response.status == 200 and token in body
+    except urllib.error.HTTPError as exc:
+        cloudflare_error = re.search(r"Error (?:code:? )?(\d{3,4})", exc.read().decode("utf-8", "replace"))
+        last_response[0] = f"HTTP {exc.code}" + (f" (Cloudflare error {cloudflare_error[1]})" if cloudflare_error else "")
+    except (OSError, ValueError) as exc:
+        last_response[0] = f"{type(exc).__name__}: {exc}"
+    return False
 
 
 def _wait_for(probe, timeout, what):
