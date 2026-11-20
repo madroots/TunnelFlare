@@ -57,6 +57,9 @@ def create_application(argv):
     app = QApplication.instance() or QApplication(argv)
     QCoreApplication.setApplicationName("TunnelFlare")
     QCoreApplication.setApplicationVersion(__version__)
+    # TunnelFlare keeps running in the tray and quits explicitly; closing the last
+    # visible dialog while the window is hidden must not end the app.
+    app.setQuitOnLastWindowClosed(False)
     if app.setStyle("Fusion") is None:
         raise RuntimeError("Qt's Fusion style is unavailable")
     load_fonts()

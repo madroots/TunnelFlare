@@ -1,57 +1,40 @@
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel, QGraphicsDropShadowEffect
-from PySide6.QtGui import QColor, QCursor, QIcon, QPixmap
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QVBoxLayout, QLabel
+from PySide6.QtGui import QCursor, QIcon
 from PySide6.QtCore import Qt, Signal
-from ..styles import Styles
 
 from ..resources import RESOURCE_DIR
 
-class TunnelRow(QFrame):
-    clicked = Signal(dict) # Emits tunnel data
 
-    def __init__(self, tunnel_data, parent=None):
+def status_style(tunnel_info):
+    """(badge text, dot style, badge style) for a get_active_tunnels() entry; None = stopped."""
+    if not tunnel_info:
+        return "OFFLINE", "StatusDotOffline", "BadgeOffline"
+    if tunnel_info.get("status") == "Running":
+        return "ONLINE", "StatusDot", "BadgeOnline"
+    if tunnel_info.get("status") == "Reconnecting":
+        return "RECONNECTING", "StatusDotStarting", "BadgeStarting"
+    return "STARTING", "StatusDotStarting", "BadgeStarting"
+
+
+def restyle(widget, object_name):
+    """Switch a widget to another stylesheet selector, repolishing only on change."""
+    if widget.objectName() != object_name:
+        widget.setObjectName(object_name)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+
+class TunnelRow(QFrame):
+    clicked = Signal(str)  # tunnel name
+
+    def __init__(self, config, tunnel_info=None, parent=None):
         super().__init__(parent)
-        self.tunnel_data = tunnel_data
         self.setObjectName("TunnelCard")
         self.setCursor(QCursor(Qt.PointingHandCursor))
-        # Remove fixed height to allow expansion for URL box
-        
+        self.setFocusPolicy(Qt.StrongFocus)  # Tab to a card; Enter or Space opens it
+        self.name = None
         self.setup_ui()
-
-    def update_status(self, is_running):
-        self.tunnel_data['running'] = is_running
-        has_url = bool(self.tunnel_data.get('public_url'))
-        
-        status = "OFFLINE"
-        dot_obj = "StatusDotOffline"
-        badge_obj = "BadgeOffline"
-
-        if is_running:
-            if has_url:
-                status = "ONLINE"
-                dot_obj = "StatusDot"
-                badge_obj = "BadgeOnline"
-            else:
-                status = "STARTING"
-                dot_obj = "StatusDotStarting"
-                badge_obj = "BadgeStarting"
-
-        # Update Dot
-        self.dot.setObjectName(dot_obj)
-        self.dot.style().unpolish(self.dot)
-        self.dot.style().polish(self.dot)
-        
-        # Update Badge
-        self.badge.setText(status)
-        self.badge.setObjectName(badge_obj)
-        self.badge.style().unpolish(self.badge)
-        self.badge.style().polish(self.badge)
-        
-        # Update Card opacity
-        # If it's starting, maybe keep it full opacity or slightly dimmed?
-        # User said "wait with online status", I'll consider it "not offline" once starting.
-        self.setProperty("offline", "false" if is_running else "true")
-        self.style().unpolish(self)
-        self.style().polish(self)
+        self.set_data(config, tunnel_info)
 
     def setup_ui(self):
         # Card padding 18px
@@ -64,14 +47,14 @@ class TunnelRow(QFrame):
         header.setSpacing(10)
         
         self.dot = QLabel()
-        self.dot.setObjectName("StatusDot")
+        self.dot.setObjectName("StatusDotOffline")
         self.dot.setFixedSize(10, 10)
         
-        self.name_label = QLabel(self.tunnel_data['name'])
+        self.name_label = QLabel()
         self.name_label.setObjectName("CardTitle")
         
-        self.badge = QLabel("ONLINE")
-        self.badge.setObjectName("BadgeOnline")
+        self.badge = QLabel()
+        self.badge.setObjectName("BadgeOffline")
         self.badge.setAlignment(Qt.AlignCenter)
         
         header.addWidget(self.dot)
@@ -86,23 +69,42 @@ class TunnelRow(QFrame):
         port_layout.setSpacing(6)
         
         self.port_icon = QLabel()
-        # We can use QIcon + pixmap for simpler label display
-        pixmap = QIcon(str(RESOURCE_DIR / "port.svg")).pixmap(16, 16)
-        self.port_icon.setPixmap(pixmap)
+        self.port_icon.setPixmap(QIcon(str(RESOURCE_DIR / "port.svg")).pixmap(16, 16))
         self.port_icon.setFixedSize(16, 16)
         self.port_icon.setScaledContents(True)
         
-        self.port_label = QLabel(f"PORT {self.tunnel_data['port']}")
+        self.port_label = QLabel()
         self.port_label.setObjectName("PortLabel")
         
         port_layout.addWidget(self.port_icon)
         port_layout.addWidget(self.port_label)
         port_layout.addStretch()
         layout.addLayout(port_layout)
-        
-        # Set initial state
-        self.update_status(self.tunnel_data.get('running', False))
 
-    def mousePressEvent(self, event):
-        self.clicked.emit(self.tunnel_data)
-        super().mousePressEvent(event)
+    def set_data(self, config, tunnel_info=None):
+        """Show `config` with its runtime state (`tunnel_info` is None when stopped)."""
+        self.name = config["name"]
+        port_text = f"PORT {config['port']}"
+        badge_text, dot_style, badge_style = status_style(tunnel_info)
+        for label, text in ((self.name_label, self.name), (self.port_label, port_text), (self.badge, badge_text)):
+            if label.text() != text:
+                label.setText(text)
+        restyle(self.dot, dot_style)
+        restyle(self.badge, badge_style)
+        offline = "false" if tunnel_info else "true"
+        if self.property("offline") != offline:
+            self.setProperty("offline", offline)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        self.setAccessibleName(f"{self.name}, port {config['port']}, {badge_text.lower()}")
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            self.clicked.emit(self.name)
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            self.clicked.emit(self.name)
+        else:
+            super().keyPressEvent(event)

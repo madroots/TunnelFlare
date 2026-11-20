@@ -1,3 +1,7 @@
+from .resources import RESOURCE_DIR
+
+# Checkbox tick, referenced by absolute path (works in source and frozen builds)
+CHECK_ICON = (RESOURCE_DIR / "check.svg").as_posix()
 
 class Styles:
     # Theme Configuration
@@ -132,6 +136,9 @@ class Styles:
         background-color: #2a2a2a;
         border-color: rgba(255, 255, 255, 0.15);
     }}
+    QPushButton:disabled {{
+        color: rgba(255, 255, 255, 0.32);
+    }}
     
     QPushButton#PrimaryAction {{
         background-color: {THEME["accent"]};
@@ -140,6 +147,10 @@ class Styles:
     }}
     QPushButton#PrimaryAction:hover {{
         background-color: #ff9d26;
+    }}
+    QPushButton#PrimaryAction:disabled {{
+        background-color: rgba(255, 138, 0, 0.45);
+        color: rgba(255, 255, 255, 0.75);
     }}
 
     /* Card Styling */
@@ -223,6 +234,9 @@ class Styles:
         background-color: rgba(255, 45, 85, 0.15);
         border-color: rgba(255, 69, 58, 0.3);
     }}
+    QPushButton#DestructiveButton:disabled {{
+        color: rgba(255, 69, 58, 0.5);
+    }}
 
     /* URL Section */
     QLabel#SectionLabel {{
@@ -305,5 +319,68 @@ class Styles:
     }}
     QMessageBox QPushButton {{
         min-width: 80px;
+    }}
+
+    /* Keyboard focus on tunnel cards */
+    QFrame#TunnelCard:focus {{
+        border: 1px solid rgba(255, 138, 0, 0.7);
+    }}
+
+    /* Dialog options */
+    QCheckBox {{
+        spacing: 10px;
+        font-size: 13px;
+        color: {THEME["text_main"]};
+    }}
+    QCheckBox::indicator {{
+        width: 18px;
+        height: 18px;
+        border-radius: 5px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        background-color: #1a1a1a;
+    }}
+    QCheckBox::indicator:hover {{
+        border-color: {THEME["accent"]};
+    }}
+    QCheckBox::indicator:checked {{
+        background-color: {THEME["accent"]};
+        border-color: {THEME["accent"]};
+        image: url("{CHECK_ICON}");
+    }}
+    QLabel#HintLabel {{
+        color: {THEME["text_sub"]};
+        font-size: 12px;
+    }}
+
+    /* Update banner */
+    QFrame#UpdateBanner {{
+        background-color: rgba(255, 138, 0, 0.10);
+        border: 1px solid rgba(255, 138, 0, 0.35);
+        border-radius: 14px;
+    }}
+    QLabel#UpdateText {{
+        color: {THEME["text_main"]};
+        font-size: 13px;
+        background: transparent;
+    }}
+    QPushButton#BannerAction {{
+        background-color: {THEME["accent"]};
+        color: white;
+        border: none;
+        border-radius: 10px;
+        padding: 6px 14px;
+    }}
+    QPushButton#BannerAction:hover {{
+        background-color: #ff9d26;
+    }}
+    QPushButton#BannerClose {{
+        background: transparent;
+        border: none;
+        color: {THEME["text_sub"]};
+        padding: 4px 8px;
+        font-size: 14px;
+    }}
+    QPushButton#BannerClose:hover {{
+        color: {THEME["text_main"]};
     }}
     """

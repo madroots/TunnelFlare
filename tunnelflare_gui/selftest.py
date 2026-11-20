@@ -16,7 +16,6 @@ import platform
 import re
 import secrets
 import shutil
-import ssl
 import subprocess
 import sys
 import tempfile
@@ -28,20 +27,17 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from tunnelflare_backend.net import ssl_context
+
 REQUIRED_RESOURCES = [
-    "add.svg", "back.svg", "copy.svg", "delete.svg", "logs.svg", "open.svg", "port.svg", "qr.svg", "tray.svg",
+    "add.svg", "back.svg", "copy.svg", "delete.svg", "edit.svg", "logs.svg", "open.svg", "port.svg", "qr.svg",
+    "tray.svg", "check.svg",
     "fonts/Inter-Regular.ttf", "fonts/Inter-Medium.ttf", "fonts/Inter-SemiBold.ttf",
     "fonts/Inter-Bold.ttf", "fonts/JetBrainsMono-Regular.ttf",
 ]
 # Every font-weight the stylesheet uses must map to its bundled face. Heavier
 # weights are avoided: macOS CoreText maps Inter ExtraBold differently.
 EXPECTED_WEIGHT_STYLES = {400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold"}
-SYSTEM_CA_BUNDLES = [
-    "/etc/ssl/cert.pem",                    # macOS, Alpine
-    "/etc/ssl/certs/ca-certificates.crt",   # Debian, Ubuntu, Arch
-    "/etc/pki/tls/certs/ca-bundle.crt",     # Fedora, RHEL
-    "/etc/ssl/ca-bundle.pem",               # openSUSE
-]
 
 
 class SelfTestError(Exception):
@@ -192,7 +188,9 @@ def _check_window(app, screenshot):
     from tunnelflare_backend.config_manager import ConfigManager
     from tunnelflare_gui.main_window import MainWindow
 
-    ConfigManager().add_tunnel("self-test", 8080)  # the screenshot shows a tunnel card
+    config = ConfigManager()
+    config.add_tunnel("self-test", 8080)  # the screenshot shows a tunnel card
+    config.set("auto_update_check", False)  # no network calls from the window check
     window = MainWindow()
     try:
         window.show()
@@ -218,7 +216,7 @@ def _check_window(app, screenshot):
 def _check_e2e(manager):
     token = secrets.token_hex(16)
     server = _serve(token)
-    context = _ssl_context()
+    context = ssl_context()
     last_response = ["no request sent"]
     tunnel_id = manager.start_tunnel("selftest-e2e", server.server_address[1])
     log = manager.logs_dir / f"{tunnel_id}.log"
@@ -281,17 +279,6 @@ def _serve(token):
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
-
-
-def _ssl_context():
-    # Frozen builds may carry an OpenSSL whose default CA paths don't exist on
-    # this machine; fall back to the OS bundle so HTTPS verification stays on.
-    context = ssl.create_default_context()
-    if not context.get_ca_certs():
-        bundle = next((path for path in SYSTEM_CA_BUNDLES if os.path.isfile(path)), None)
-        if bundle:
-            context.load_verify_locations(bundle)
-    return context
 
 
 def _fetch(url, token, context, last_response):
