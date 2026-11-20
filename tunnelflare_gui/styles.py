@@ -34,6 +34,47 @@ class Styles:
         background-color: transparent; 
     }}
 
+    /* Slim scrollbars: a thin rounded thumb, no track, no arrow buttons */
+    QScrollBar:vertical {{
+        background: transparent;
+        border: none;
+        width: 10px;
+        margin: 0;
+    }}
+    QScrollBar:horizontal {{
+        background: transparent;
+        border: none;
+        height: 10px;
+        margin: 0;
+    }}
+    QScrollBar::handle:vertical {{
+        background: rgba(255, 255, 255, 0.16);
+        border-radius: 3px;
+        min-height: 40px;
+        margin: 2px;
+    }}
+    QScrollBar::handle:horizontal {{
+        background: rgba(255, 255, 255, 0.16);
+        border-radius: 3px;
+        min-width: 40px;
+        margin: 2px;
+    }}
+    QScrollBar::handle:hover {{
+        background: rgba(255, 255, 255, 0.28);
+    }}
+    QScrollBar::handle:pressed {{
+        background: rgba(255, 255, 255, 0.40);
+    }}
+    QScrollBar::add-line, QScrollBar::sub-line {{
+        width: 0;
+        height: 0;
+        border: none;
+        background: none;
+    }}
+    QScrollBar::add-page, QScrollBar::sub-page {{
+        background: none;
+    }}
+
     /* Header Styling */
     QLabel#AppTitle {{
         font-size: 34px;

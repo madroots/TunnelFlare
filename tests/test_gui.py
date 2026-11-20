@@ -2,7 +2,8 @@ import re
 
 import pytest
 import qrcode
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtCore import QEvent, QPoint
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton
 
 from tunnelflare_gui import selftest
 from tunnelflare_gui.application import create_application
@@ -33,6 +34,32 @@ def test_every_stylesheet_weight_uses_its_bundled_face(app):
     used = {int(weight) for weight in re.findall(r"font-weight:\s*(\d+)", Styles.STYLESHEET)}
     assert used <= set(selftest.EXPECTED_WEIGHT_STYLES)
     selftest._check_fonts()
+
+
+def test_scrollbar_stays_out_of_the_cards(window, qtbot):
+    home = window.home_view
+    add_button = home.findChild(QPushButton, "AddButton")
+    bar = home.scroll_area.verticalScrollBar()
+    window.show()
+
+    def right_edge(widget):
+        return widget.mapTo(window, QPoint(widget.width(), 0)).x()
+
+    def first_card():
+        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        return home.container_layout.itemAt(0).widget()
+
+    window.config_manager.add_tunnel("api", 3000)
+    home.refresh()
+    qtbot.waitUntil(lambda: not bar.isVisible() and right_edge(first_card()) == right_edge(add_button))
+
+    for number in range(10):
+        window.config_manager.add_tunnel(f"service-{number}", 4000 + number)
+    home.refresh()
+    qtbot.waitUntil(bar.isVisible)
+    # Cards keep their width and alignment; the scrollbar sits in the margin beside them.
+    qtbot.waitUntil(lambda: right_edge(first_card()) == right_edge(add_button))
+    assert bar.mapTo(window, QPoint(0, 0)).x() > right_edge(first_card())
 
 
 def test_failed_start_reports_error_and_unlocks_controls(window, qtbot, monkeypatch):

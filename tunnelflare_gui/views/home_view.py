@@ -6,6 +6,13 @@ from ..styles import Styles
 
 from ..resources import RESOURCE_DIR
 
+# The page has 24 px side margins. On the right, the scrollbar lives in the outer
+# part of that margin, so cards stay aligned with the header when the list scrolls.
+PAGE_MARGIN = 24
+SCROLLBAR_EDGE_GAP = 8
+CONTENT_INSET = PAGE_MARGIN - SCROLLBAR_EDGE_GAP
+
+
 class HomeView(QWidget):
     add_requested = Signal()
     tunnel_clicked = Signal(str) # name
@@ -19,11 +26,12 @@ class HomeView(QWidget):
     def setup_ui(self):
         layout = QVBoxLayout(self)
         # Standardized Margin: Top 28, Side 24, Bottom 40
-        layout.setContentsMargins(24, 28, 24, 40)
+        layout.setContentsMargins(PAGE_MARGIN, 28, SCROLLBAR_EDGE_GAP, 40)
         layout.setSpacing(0)
         
         # Header
         header = QHBoxLayout()
+        header.setContentsMargins(0, 0, CONTENT_INSET, 0)
         header_text = QVBoxLayout()
         header_text.setSpacing(2) # Tight spacing between title and subtitle
         header_text.setContentsMargins(0, 0, 0, 0)
@@ -61,10 +69,18 @@ class HomeView(QWidget):
         self.container_layout = QVBoxLayout(self.container)
         self.container_layout.setAlignment(Qt.AlignTop)
         self.container_layout.setSpacing(26) # Matching .card margin-top
-        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setContentsMargins(0, 0, CONTENT_INSET, 0)
         
         self.scroll_area.setWidget(self.container)
+        self.scroll_area.verticalScrollBar().rangeChanged.connect(self._fit_scrollbar_gutter)
         layout.addWidget(self.scroll_area)
+
+    def _fit_scrollbar_gutter(self, minimum, maximum):
+        # A visible scrollbar takes its width from the viewport; give that width
+        # back on the right so the cards keep their size and alignment.
+        bar = self.scroll_area.verticalScrollBar()
+        bar_width = bar.sizeHint().width() if maximum > minimum else 0
+        self.container_layout.setContentsMargins(0, 0, max(0, CONTENT_INSET - bar_width), 0)
 
     def refresh(self):
         # Rebuild list
