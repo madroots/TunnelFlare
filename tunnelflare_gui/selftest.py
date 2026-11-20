@@ -28,9 +28,11 @@ from pathlib import Path
 REQUIRED_RESOURCES = [
     "add.svg", "back.svg", "copy.svg", "delete.svg", "logs.svg", "open.svg", "port.svg", "qr.svg", "tray.svg",
     "fonts/Inter-Regular.ttf", "fonts/Inter-Medium.ttf", "fonts/Inter-SemiBold.ttf",
-    "fonts/Inter-Bold.ttf", "fonts/Inter-ExtraBold.ttf", "fonts/JetBrainsMono-Regular.ttf",
+    "fonts/Inter-Bold.ttf", "fonts/JetBrainsMono-Regular.ttf",
 ]
-EXPECTED_WEIGHT_STYLES = {400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold", 800: "ExtraBold"}
+# Every font-weight the stylesheet uses must map to its bundled face. Heavier
+# weights are avoided: macOS CoreText maps Inter ExtraBold differently.
+EXPECTED_WEIGHT_STYLES = {400: "Regular", 500: "Medium", 600: "SemiBold", 700: "Bold"}
 SYSTEM_CA_BUNDLES = [
     "/etc/ssl/cert.pem",                    # macOS, Alpine
     "/etc/ssl/certs/ca-certificates.crt",   # Debian, Ubuntu, Arch

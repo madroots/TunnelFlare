@@ -1,3 +1,5 @@
+import re
+
 import pytest
 import qrcode
 from PySide6.QtWidgets import QMessageBox
@@ -5,6 +7,7 @@ from PySide6.QtWidgets import QMessageBox
 from tunnelflare_gui import selftest
 from tunnelflare_gui.application import create_application
 from tunnelflare_gui.dialogs.qr_code import render_qr_image
+from tunnelflare_gui.styles import Styles
 
 
 @pytest.fixture(scope="session")
@@ -24,9 +27,11 @@ def window(app, qtbot):
     main_window.tunnel_manager.stop_all()
 
 
-def test_bundled_fonts_cover_every_stylesheet_weight(app):
-    # Identical typography on every OS: each weight used by the stylesheet must
-    # resolve to the matching bundled Inter face, not a system font.
+def test_every_stylesheet_weight_uses_its_bundled_face(app):
+    # Identical typography on every OS: each weight in the stylesheet must
+    # resolve to the matching bundled Inter face, not a system font or a fallback.
+    used = {int(weight) for weight in re.findall(r"font-weight:\s*(\d+)", Styles.STYLESHEET)}
+    assert used <= set(selftest.EXPECTED_WEIGHT_STYLES)
     selftest._check_fonts()
 
 

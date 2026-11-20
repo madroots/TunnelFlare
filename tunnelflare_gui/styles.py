@@ -134,7 +134,7 @@ class Styles:
         padding: 4px 12px;
         border-radius: 12px;
         font-size: 12px;
-        font-weight: 800;
+        font-weight: 700;
     }}
     QLabel#BadgeStarting {{
         background: rgba(241, 196, 15, 30);
@@ -142,7 +142,7 @@ class Styles:
         padding: 4px 12px;
         border-radius: 12px;
         font-size: 12px;
-        font-weight: 800;
+        font-weight: 700;
     }}
     QLabel#BadgeOffline {{
         background: #2a2a2a;
@@ -150,7 +150,7 @@ class Styles:
         padding: 4px 12px;
         border-radius: 12px;
         font-size: 12px;
-        font-weight: 800;
+        font-weight: 700;
     }}
 
     /* Status Dot */
@@ -186,7 +186,7 @@ class Styles:
     /* URL Section */
     QLabel#SectionLabel {{
         font-size: 11px;
-        font-weight: 800;
+        font-weight: 700;
         color: {THEME["text_sub"]};
         text-transform: uppercase;
         letter-spacing: 1px;
