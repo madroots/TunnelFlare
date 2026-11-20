@@ -24,6 +24,7 @@ import threading
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -224,6 +225,11 @@ def _check_e2e(manager):
     try:
         url = _wait_for(lambda: manager.get_public_url(tunnel_id), 90, "the quick tunnel URL")
         _wait_for(lambda: "Registered tunnel connection" in _read_text(log), 90, "cloudflared to connect to Cloudflare")
+        # A brand-new hostname is unknown to DNS for about a second, and looking it up
+        # in that window caches the miss (macOS kept it for minutes). Let Cloudflare's
+        # resolver publish it before the system resolver ever asks.
+        hostname = urllib.parse.urlsplit(url).hostname
+        _wait_for(lambda: _dns_published(hostname, context), 60, f"DNS to publish {hostname}")
         _wait_for(lambda: _fetch(url, token, context, last_response), 120, f"{url} to serve the local page")
     except SelfTestError as exc:
         tail = "\n".join(_read_text(log).splitlines()[-40:])
@@ -242,6 +248,20 @@ def _read_text(path):
         return path.read_text(encoding="utf-8", errors="ignore")
     except OSError:
         return ""
+
+
+def _dns_published(hostname, context):
+    """True once Cloudflare's public resolver (1.1.1.1, DNS over HTTPS) has an address
+    for hostname. If that resolver is unreachable, waits a few seconds and says yes."""
+    request = urllib.request.Request(
+        f"https://1.1.1.1/dns-query?name={hostname}&type=A", headers={"Accept": "application/dns-json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10, context=context) as response:
+            return any(answer.get("type") == 1 for answer in json.load(response).get("Answer", []))
+    except (OSError, ValueError):
+        time.sleep(5)
+        return True
 
 
 def _serve(token):

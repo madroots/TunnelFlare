@@ -45,10 +45,10 @@ proxies, and on locked-down machines.
 - **Same behaviour**: config in `~/.tunnelflare` everywhere. Closing the window
   hides the app to the tray (left-click restores it). Quit leaves running tunnels
   up, and they are rediscovered on the next launch. cloudflared runs with the same
-  flags everywhere: `--protocol http2 --edge-ip-version 4`, because QUIC over UDP is
-  often blocked and cloudflared's fallback can take minutes (CI saw this on macOS).
-  Only Windows dials `127.0.0.1` instead of `localhost`, kept from earlier Windows
-  networking fixes.
+  flags everywhere: `--protocol http2 --edge-ip-version 4`. QUIC needs UDP port 7844,
+  which firewalls often block (the reason Windows was moved to HTTP/2 earlier), and
+  cloudflared's fallback from QUIC can take minutes. Only Windows dials `127.0.0.1`
+  instead of `localhost`, kept from those Windows networking fixes.
 - **Proof**: CI uploads a screenshot of the main window from each OS's packaged
   app with every build, for side-by-side comparison.
 
