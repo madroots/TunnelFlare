@@ -23,23 +23,37 @@ Expose local apps instantly and securely through Cloudflare tunnels — no accou
 
 ## Quick Start
 
-### Recommended: Gear Lever
+Download the file for your system from the [Releases](https://github.com/madroots/TunnelFlare/releases) page. Python, Qt and `cloudflared` are bundled, so there is nothing else to install.
 
-**[Gear Lever](https://github.com/mijorus/gearlever)** is the recommended way to manage your AppImages.  
-It seamlessly integrates them into your system menu and handles updates.
+| System | File | Requirements |
+| --- | --- | --- |
+| Linux x86_64 | `TunnelFlare-<version>-linux-x86_64.AppImage` | glibc 2.35+ (Ubuntu 22.04, Debian 12, Fedora 36 or newer) |
+| macOS Apple Silicon / Intel | `TunnelFlare-<version>-macos-arm64.dmg` / `-macos-x86_64.dmg` | macOS 14+ |
+| Windows x64 | `TunnelFlare-<version>-windows-x64-setup.exe` or `-portable.zip` | Windows 10 (1809)+ |
 
-1. Download the latest `.AppImage` from the [Releases](https://github.com/madroots/TunnelFlare/releases) page.  
-2. Drag & Drop `TunnelFlare.AppImage` into Gear Lever and click **Install/run**.
-
+Builds are not code-signed yet:
+- **macOS**: drag TunnelFlare to Applications. On first launch, go to **System Settings → Privacy & Security** and click **Open Anyway**.
+- **Windows**: if SmartScreen appears, click **More info → Run anyway**. The installer does not need admin rights.
+- **Linux**: [Gear Lever](https://github.com/mijorus/gearlever) is the recommended way to manage the AppImage. It adds TunnelFlare to your menu and installs updates. Drag the AppImage into Gear Lever and click **Install/run**.
 
 ### Development Setup
-Requirements: Python 3.8+, Cloudflared CLI.
+Requirements: Python 3.11+, and the [cloudflared](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/downloads/) CLI on your `PATH` (packaged builds bundle their own).
 ```bash
 git clone https://github.com/madroots/TunnelFlare
 cd TunnelFlare
-./setup.sh
-./run.sh
+./setup.sh      # Windows: setup.bat
+./run.sh        # Windows: run.bat
 ```
+Dependencies are pinned with hashes in `requirements.txt` (app) and `requirements-dev.txt` (app plus test and build tools).
+
+Run the tests and build a package for your platform:
+```bash
+python -m pip install --require-hashes -r requirements-dev.txt
+python -m pytest
+python packaging/build.py --target linux-x86_64   # or macos-arm64, macos-x86_64, windows-x64
+python packaging/smoke_test.py --target linux-x86_64
+```
+The release process, test strategy and signing roadmap are described in [docs/RELEASE_PLAN.md](docs/RELEASE_PLAN.md).
 
 ## Configuration
 Application data and tunnel configurations are stored in `~/.tunnelflare`.
