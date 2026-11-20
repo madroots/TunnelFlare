@@ -1,7 +1,7 @@
 from .resources import RESOURCE_DIR
 
 from PySide6.QtGui import QIcon, QAction
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QSystemTrayIcon, 
     QMenu, QApplication, QMessageBox
@@ -14,6 +14,10 @@ from .dialogs.create_tunnel import CreateTunnelDialog
 from .styles import Styles
 
 class MainWindow(QMainWindow):
+    # (tunnel name, error message or "") emitted by the start/stop worker thread;
+    # Qt queues it to the GUI thread.
+    toggle_finished = Signal(str, str)
+
     def __init__(self):
         super().__init__()
         self.setObjectName("MainWindow")
@@ -40,6 +44,7 @@ class MainWindow(QMainWindow):
         self.home_view.tunnel_clicked.connect(self.go_to_detail)
         self.detail_view.back_requested.connect(self.go_home)
         self.detail_view.toggle_requested.connect(self.toggle_tunnel)
+        self.toggle_finished.connect(self._on_toggle_finished)
         
         # Loop
         self.refresh_timer = QTimer(self)
@@ -67,13 +72,14 @@ class MainWindow(QMainWindow):
         
         menu = QMenu()
         show_action = QAction("Show", self)
-        show_action.triggered.connect(self.show)
+        show_action.triggered.connect(self.show_window)
         quit_action = QAction("Quit", self)
         quit_action.triggered.connect(QApplication.quit)
         
         menu.addAction(show_action)
         menu.addAction(quit_action)
         self.tray_icon.setContextMenu(menu)
+        self.tray_icon.activated.connect(self._on_tray_activated)
         self.tray_icon.show()
 
     def refresh_current_view(self):
@@ -104,16 +110,11 @@ class MainWindow(QMainWindow):
         active = self.tunnel_manager.get_active_tunnels()
         tunnel_id = next((t['id'] for t in active if t['name'] == name), None)
         
-        # Immediate UI Feedback
-        if tunnel_id:
-            self.detail_view.toggle_btn.setText("Stopping...")
-            self.detail_view.toggle_btn.setEnabled(False)
-        else:
-            self.detail_view.toggle_btn.setText("Starting...")
-            self.detail_view.toggle_btn.setEnabled(False)
+        # Immediate UI Feedback; also locks Delete until the worker reports back
+        self.detail_view.set_busy(True, "Stopping..." if tunnel_id else "Starting...")
 
         def run_action():
-            error_msg = None
+            error_msg = ""
             try:
                 if tunnel_id:
                     self.tunnel_manager.stop_tunnel(tunnel_id)
@@ -123,22 +124,26 @@ class MainWindow(QMainWindow):
                     if config:
                         self.tunnel_manager.start_tunnel(config['name'], config['port'])
             except Exception as e:
-                error_msg = str(e)
-            
-            # Update UI on main thread
-            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
-            def show_error(msg):
-                QMessageBox.critical(self, "Tunnel Error", f"Failed to toggle tunnel: {msg}")
-                self.detail_view.toggle_btn.setEnabled(True)
-                self.detail_view.refresh_state()
-
-            if error_msg:
-                QTimer.singleShot(0, lambda: show_error(error_msg))
-            else:
-                QTimer.singleShot(0, lambda: self.detail_view.refresh_state())
+                error_msg = str(e) or type(e).__name__
+            self.toggle_finished.emit(name, error_msg)
         
         thread = threading.Thread(target=run_action, daemon=True)
         thread.start()
+
+    def _on_toggle_finished(self, name, error_msg):
+        self.detail_view.set_busy(False)
+        self.detail_view.refresh_state()
+        if error_msg:
+            QMessageBox.critical(self, "Tunnel Error", f"Failed to toggle tunnel: {error_msg}")
+
+    def show_window(self):
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _on_tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+            self.show_window()
 
     def closeEvent(self, event):
         # Minimize to tray instead of closing?

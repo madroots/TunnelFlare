@@ -1,10 +1,18 @@
 import os
 import json
+import time
 from pathlib import Path
+
+
+def default_config_dir():
+    """Config root: $TUNNELFLARE_HOME if set (tests, self-test), else ~/.tunnelflare."""
+    override = os.environ.get("TUNNELFLARE_HOME")
+    return Path(override).expanduser() if override else Path.home() / ".tunnelflare"
+
 
 class ConfigManager:
     def __init__(self):
-        self.config_dir = Path.home() / ".tunnelflare"
+        self.config_dir = default_config_dir()
         self.config_file = self.config_dir / "config.json"
         self.tunnels_dir = self.config_dir / "tunnels"
         self.logs_dir = self.config_dir / "logs"
@@ -23,7 +31,7 @@ class ConfigManager:
             return self._default_config()
         
         try:
-            with open(self.config_file, 'r') as f:
+            with open(self.config_file, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except json.JSONDecodeError:
             return self._default_config()
@@ -60,8 +68,22 @@ class ConfigManager:
         return self.config.get("tunnels", [])
 
     def save_config(self):
-        with open(self.config_file, 'w') as f:
+        # Write a complete temp file, then atomically swap it in: a crash or a
+        # full disk can never leave a truncated config.json behind.
+        tmp_file = self.config_file.with_name(self.config_file.name + ".tmp")
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(self.config, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+        for attempt in range(5):
+            try:
+                os.replace(tmp_file, self.config_file)
+                return
+            except PermissionError:
+                # Windows refuses the swap while another thread is reading the file.
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
 
     def get(self, key, default=None):
         return self.config.get(key, default)

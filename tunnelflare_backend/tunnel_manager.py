@@ -8,6 +8,8 @@ import psutil
 from pathlib import Path
 from tunnelflare_backend.config_manager import ConfigManager
 
+QUICK_TUNNEL_URL = re.compile(r"https://([a-zA-Z0-9-]+)\.trycloudflare\.com")
+
 class TunnelManager:
     def __init__(self):
         self.config_manager = ConfigManager()
@@ -28,46 +30,60 @@ class TunnelManager:
         with open(self.debug_log, 'a', encoding='utf-8') as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
 
+    def _bundled_cloudflared(self):
+        """cloudflared shipped inside a frozen (PyInstaller) build; None when running from source."""
+        if not getattr(sys, "frozen", False):
+            return None
+        name = "cloudflared.exe" if sys.platform == "win32" else "cloudflared"
+        return Path(sys._MEIPASS) / name
+
     def _get_cloudflared_path(self):
-        # 1. Identify bundled path
-        bundled_path = None
-        if hasattr(sys, '_MEIPASS'):
-            ext = ".exe" if sys.platform == "win32" else ""
-            bundled_path = Path(sys._MEIPASS) / f"cloudflared{ext}"
-        elif os.environ.get('APPDIR'):
-            bundled_path = Path(os.environ.get('APPDIR')) / "usr" / "bin" / "cloudflared"
+        bundled_path = self._bundled_cloudflared()
+        if bundled_path is None:
+            # Running from source: use the cloudflared installed on PATH
+            return shutil.which("cloudflared")
+        if not bundled_path.exists():
+            self._log(f"Bundled cloudflared missing: {bundled_path}")
+            return None
 
-        # 2. If bundled, sync to persistent bin dir for firewall consistency
-        if bundled_path and bundled_path.exists():
-            persistent_path = self.bin_dir / bundled_path.name
-            
-            # Update if not exists or size mismatch (quick check)
-            if not persistent_path.exists() or persistent_path.stat().st_size != bundled_path.stat().st_size:
-                try:
-                    self._log(f"Syncing bundled binary: {bundled_path} -> {persistent_path}")
-                    # On Windows, the file might be locked if a tunnel is running.
-                    # We should handle this gracefully.
-                    shutil.copy2(bundled_path, persistent_path)
-                    if sys.platform != "win32":
-                        persistent_path.chmod(0o755)
-                except (PermissionError, OSError) as e:
-                    self._log(f"Persistent binary sync skipped (possibly locked): {e}")
-                    # If it exists, use it anyway (likely already correct version)
-                    if persistent_path.exists(): return str(persistent_path)
-                    return str(bundled_path) # Absolute fallback to temp path
-            return str(persistent_path)
+        # Run a stable copy outside the app bundle: its path survives app updates
+        # (firewall rules stay valid) and running tunnels keep no app files busy.
+        persistent_path = self.bin_dir / bundled_path.name
+        bundled_stat = bundled_path.stat()
+        if persistent_path.exists():
+            persistent_stat = persistent_path.stat()
+            if (persistent_stat.st_size == bundled_stat.st_size
+                    and abs(persistent_stat.st_mtime - bundled_stat.st_mtime) < 2):
+                return str(persistent_path)
 
-        # 3. Check in system PATH as fallback
-        return shutil.which("cloudflared")
+        staged_path = persistent_path.with_name(persistent_path.name + ".new")
+        try:
+            self._log(f"Syncing bundled binary: {bundled_path} -> {persistent_path}")
+            shutil.copy2(bundled_path, staged_path)
+            if sys.platform != "win32":
+                staged_path.chmod(0o755)
+            # Atomic swap: a tunnel still running the old binary keeps its file
+            os.replace(staged_path, persistent_path)
+        except OSError as e:
+            # On Windows the swap fails while a tunnel runs from the old copy
+            self._log(f"Persistent binary sync skipped (possibly in use): {e}")
+            staged_path.unlink(missing_ok=True)
+            if not persistent_path.exists():
+                return str(bundled_path)
+        return str(persistent_path)
 
     def check_dependencies(self):
         path = self._get_cloudflared_path()
         self._log(f"Dependency check: cloudflared found at {path}")
         return path is not None
 
+    @staticmethod
+    def _sanitize(name):
+        return re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+
     def generate_tunnel_id(self, name):
         # Sanitize name
-        clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', name)
+        clean_name = self._sanitize(name)
         # Ensure uniqueness
         if not (self.tunnels_dir / f"{clean_name}.pid").exists():
             return clean_name
@@ -83,19 +99,21 @@ class TunnelManager:
 
         tunnel_id = self.generate_tunnel_id(name)
         log_file = self.logs_dir / f"{tunnel_id}.log"
+        stderr_file = self.logs_dir / f"{tunnel_id}.stderr.log"
         pid_file = self.tunnels_dir / f"{tunnel_id}.pid"
         config_file = self.tunnels_dir / f"{tunnel_id}.config"
 
         url = f"{protocol}://localhost:{port}"
 
         # Write config metadata
-        with open(config_file, 'w') as f:
+        with open(config_file, 'w', encoding='utf-8') as f:
             f.write(f"NAME={name}\n")
             f.write(f"PORT={port}\n")
             f.write(f"PROTOCOL={protocol}\n")
             f.write(f"START_TIME={time.time()}\n")
 
         # Start cloudflared
+        output_handle = None
         try:
             # Use 127.0.0.1 instead of localhost for Windows stability
             host = "127.0.0.1" if sys.platform == "win32" else "localhost"
@@ -109,58 +127,61 @@ class TunnelManager:
                 # Global flags MUST come before the command (tunnel)
                 # Force http2 and IPv4 for better compatibility through Windows firewalls
                 cmd = [cf_path, "--no-autoupdate", "tunnel", "--protocol", "http2", "--edge-ip-version", "4", "--url", url, "--logfile", str(log_file)]
+                # stderr goes to a file: an unread pipe fills up and stalls cloudflared
+                output_file = stderr_file
+                output_handle = open(output_file, 'w', encoding='utf-8')
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
-                    "stderr": subprocess.PIPE, # Capture stderr for the startup check
+                    "stderr": output_handle,
                     "creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
                 }
             else:
-                log_handle = open(log_file, 'w', encoding='utf-8')
-                cmd = [cf_path, "tunnel", "--url", url]
+                output_file = log_file
+                output_handle = open(output_file, 'w', encoding='utf-8')
+                cmd = [cf_path, "--no-autoupdate", "tunnel", "--url", url]
                 kwargs = {
-                    "stdout": log_handle,
+                    "stdout": output_handle,
                     "stderr": subprocess.STDOUT,
                     "start_new_session": True
                 }
 
             self._log(f"Executing: {' '.join(cmd)}")
             process = subprocess.Popen(cmd, **kwargs)
-            
+            output_handle.close()  # the child keeps its own handle
+
+            # Record the PID with the process start time right away: the tunnel stays
+            # manageable even if the app exits now, and a reused PID is never
+            # mistaken for it later.
+            try:
+                started = psutil.Process(process.pid).create_time()
+            except psutil.NoSuchProcess:
+                started = None  # exited already; reported below
+            if started is not None:
+                staged_pid_file = pid_file.with_name(pid_file.name + ".tmp")
+                staged_pid_file.write_text(f"{process.pid} {started}")
+                os.replace(staged_pid_file, pid_file)
+
             # Check if it died immediately (e.g. invalid flags or binary error)
             time.sleep(1.0) # Give it a bit more time to fail
             if process.poll() is not None:
-                stderr_data = ""
-                if sys.platform == "win32" and process.stderr:
-                    try:
-                        stderr_data = process.stderr.read().decode('utf-8', errors='ignore')
-                    except:
-                        stderr_data = "Could not read stderr"
-                
-                if "forbidden by its access permissions" in stderr_data:
+                try:
+                    output = output_file.read_text(encoding='utf-8', errors='ignore').strip()
+                except OSError:
+                    output = ""
+
+                if "forbidden by its access permissions" in output:
                     error_msg = "Firewall or Antivirus is blocking the connection to Cloudflare. Please add an exclusion for TunnelFlare."
                 else:
-                    error_msg = stderr_data if stderr_data else "Unknown startup error"
+                    error_msg = output[-800:] if output else "Unknown startup error"
                 
                 raise RuntimeError(f"cloudflared exited immediately with code {process.returncode}. {error_msg}")
 
-            if sys.platform != "win32":
-                log_handle.close()
-            elif process.stderr:
-                # On Windows, we need to handle the pipe if we're keeping it running
-                # Actually, if we use PIPE we must read it or it fills up.
-                # Better: for Windows successfully started processes, we don't need stderr anymore.
-                # But we can't easily "close" the pipe from here if the process is alive without potentially hanging.
-                # However, since we used CREATE_NO_WINDOW and redirected to --logfile, stderr shouldn't be noisy.
-                pass
-            
-            with open(pid_file, 'w') as f:
-                f.write(str(process.pid))
-            
             self._log(f"Started tunnel {tunnel_id} (PID: {process.pid})")
             return tunnel_id
         except Exception as e:
             self._log(f"Error starting tunnel: {str(e)}")
             # Cleanup on failure
+            if output_handle: output_handle.close()
             if pid_file.exists(): pid_file.unlink()
             if config_file.exists(): config_file.unlink()
             raise e
@@ -171,11 +192,8 @@ class TunnelManager:
             return False
 
         try:
-            with open(pid_file, 'r') as f:
-                pid = int(f.read().strip())
-            
-            if psutil.pid_exists(pid):
-                proc = psutil.Process(pid)
+            proc = self._tunnel_process(pid_file)
+            if proc is not None:
                 # Terminate properly cross-platform
                 proc.terminate()
                 
@@ -184,10 +202,11 @@ class TunnelManager:
                     proc.wait(timeout=5)
                 except psutil.TimeoutExpired:
                     proc.kill()
+                    proc.wait(timeout=5)
             
             self._cleanup_tunnel_files(tunnel_id)
             return True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, ValueError):
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.TimeoutExpired):
             # Process might be already dead or no permission
             self._cleanup_tunnel_files(tunnel_id)
             return False
@@ -206,6 +225,36 @@ class TunnelManager:
         if pid_file.exists(): pid_file.unlink()
         if config_file.exists(): config_file.unlink()
 
+    def _tunnel_process(self, pid_file):
+        """The live cloudflared process recorded in pid_file, or None if it has exited.
+
+        PID files hold "<pid> <create_time>": after a crash or reboot the PID can
+        belong to an unrelated process, which must never be reported or terminated.
+        """
+        try:
+            fields = pid_file.read_text().split()
+            pid = int(fields[0])
+            started = float(fields[1]) if len(fields) > 1 else None
+            proc = psutil.Process(pid)
+            if proc.status() == psutil.STATUS_ZOMBIE:
+                self._reap(pid)
+                return None
+            if started is None:
+                # PID file from an older version: trust only a cloudflared process
+                return proc if "cloudflared" in proc.name().lower() else None
+            return proc if abs(proc.create_time() - started) < 1.0 else None
+        except (IndexError, ValueError, OSError, psutil.Error):
+            return None
+
+    @staticmethod
+    def _reap(pid):
+        # A child that exited stays a zombie until it is waited for (POSIX only)
+        if os.name == "posix":
+            try:
+                os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                pass
+
     def get_public_url(self, tunnel_id):
         log_file = self.logs_dir / f"{tunnel_id}.log"
         if not log_file.exists():
@@ -220,9 +269,10 @@ class TunnelManager:
             if not content:
                 return None
                 
-            matches = re.findall(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", content)
-            if matches:
-                 return matches[-1]
+            # Skip api.trycloudflare.com, which appears in cloudflared's error messages
+            hosts = [host for host in QUICK_TUNNEL_URL.findall(content) if host != "api"]
+            if hosts:
+                 return f"https://{hosts[-1]}.trycloudflare.com"
                  
             # If no match but we have content, log a snippet for debugging if it's been a while
             if len(content) > 0 and len(content) < 500:
@@ -243,9 +293,9 @@ class TunnelManager:
                 target_id = t['id']
                 break
         
-        # If not active, but we have a config, use the name as ID (default)
+        # If not active, fall back to the default ID (the sanitized name)
         if not target_id:
-            target_id = name
+            target_id = self._sanitize(name)
 
         # 1. Get Tunnel Logs
         tunnel_logs = ""
@@ -281,22 +331,20 @@ class TunnelManager:
             tunnel_id = pid_file.stem
             config_file = self.tunnels_dir / f"{tunnel_id}.config"
             
-            # Check if running
-            try:
-                pid = int(pid_file.read_text().strip())
-                if not psutil.pid_exists(pid):
-                    raise psutil.NoSuchProcess(pid)
-            except (psutil.NoSuchProcess, ValueError, OSError):
+            # Check if running (and that the PID still belongs to our cloudflared)
+            proc = self._tunnel_process(pid_file)
+            if proc is None:
                 # Dead tunnel cleanup
                 self._cleanup_tunnel_files(tunnel_id)
                 continue
+            pid = proc.pid
                 
             # Read config
             name = tunnel_id
             port = "?"
             protocol = "?"
             if config_file.exists():
-                content = config_file.read_text()
+                content = config_file.read_text(encoding='utf-8')
                 for line in content.splitlines():
                     if line.startswith("NAME="): name = line[5:]
                     if line.startswith("PORT="): port = line[5:]

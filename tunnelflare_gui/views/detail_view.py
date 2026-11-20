@@ -16,6 +16,7 @@ class DetailView(QWidget):
         super().__init__(parent)
         self.tunnel_manager = tunnel_manager
         self.current_tunnel_name = None
+        self._busy = False
         self.setup_ui()
         
         # Log poller
@@ -161,6 +162,8 @@ class DetailView(QWidget):
         layout.addWidget(self.log_display)
     
     def handle_delete(self):
+        if self._busy:
+            return
         target_name = self.current_tunnel_name
         dialog = ConfirmDialog(
             "Delete Tunnel",
@@ -230,7 +233,7 @@ class DetailView(QWidget):
         
         if is_running:
             # Only update button if it's enabled (not currently performing an action)
-            if self.toggle_btn.isEnabled():
+            if not self._busy:
                 self.toggle_btn.setText("Stop Tunnel")
                 self.toggle_btn.setObjectName("DestructiveButton")
                 self.toggle_btn.setProperty("is_running", True)
@@ -247,7 +250,7 @@ class DetailView(QWidget):
                 self.qr_btn.setEnabled(False)
                 self.open_btn.setEnabled(False)
         else:
-            if self.toggle_btn.isEnabled():
+            if not self._busy:
                 self.toggle_btn.setText("Turn ON")
                 self.toggle_btn.setObjectName("PrimaryAction")
                 self.toggle_btn.setProperty("is_running", False)
@@ -256,17 +259,6 @@ class DetailView(QWidget):
             self.qr_btn.setEnabled(False)
             self.open_btn.setEnabled(False)
             
-        # Re-enable button if the background action is done
-        is_btn_running = self.toggle_btn.property("is_running")
-        # If button says it's running but it's not, or vice versa, and it was disabled (action in progress)
-        if not self.toggle_btn.isEnabled():
-             # If we were starting (is_running was False) and now it IS running
-             if is_btn_running == False and is_running == True:
-                 self.toggle_btn.setEnabled(True)
-             # If we were stopping (is_running was True) and now it is NOT running
-             elif is_btn_running == True and is_running == False:
-                 self.toggle_btn.setEnabled(True)
-             
         # Re-polish style for toggle button
         self.toggle_btn.style().unpolish(self.toggle_btn)
         self.toggle_btn.style().polish(self.toggle_btn)
@@ -292,6 +284,14 @@ class DetailView(QWidget):
         # Optimistic update or wait for refresh? Wait for refresh loop handled by main window usually.
         # But for UX response:
         QTimer.singleShot(200, self.refresh_state)
+
+    def set_busy(self, busy, text=None):
+        """Lock Turn ON/Stop and Delete while a start/stop runs in the background."""
+        self._busy = busy
+        self.toggle_btn.setEnabled(not busy)
+        self.delete_btn.setEnabled(not busy)
+        if text:
+            self.toggle_btn.setText(text)
 
     def copy_link(self):
         text = self.url_text.text()
