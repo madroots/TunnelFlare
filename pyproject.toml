@@ -1,20 +1,30 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=78.1.1"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tunnelflare"
-version = "1.0.0"
+dynamic = ["version"]
 description = "A modern GUI for Cloudflare Tunnels"
 readme = "README.md"
 authors = [
   { name = "TunnelFlare Team" },
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
-    "PySide6>=6.5.0",
-    "qrcode>=7.4.2",
-    "Pillow>=10.0.0"
+    # Qt 6.12 is the current Qt LTS line; open-source patch releases continue
+    # until Qt 6.13 ships (planned 2027-04), then move to the next release.
+    "PySide6-Essentials~=6.12.0",
+    "qrcode>=8.2",
+    "psutil>=7.2.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "pytest-qt>=4.5.0",
+    "pyinstaller>=6.22.3",
+    "ruff>=0.17.6",
 ]
 
 [project.scripts]
@@ -24,8 +34,19 @@ tunnelflare = "main:main"
 py-modules = ["main"]
 include-package-data = true
 
+[tool.setuptools.dynamic]
+version = { attr = "tunnelflare_backend.__version__" }
+
 [tool.setuptools.packages.find]
 include = ["tunnelflare_backend*", "tunnelflare_gui*"]
 
 [tool.setuptools.package-data]
-tunnelflare_gui = ["resources/*.svg"]
+tunnelflare_gui = ["resources/*.svg", "resources/fonts/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+qt_api = "pyside6"
+
+[tool.ruff]
+extend-exclude = ["build", "dist", "pyqt_app"]
