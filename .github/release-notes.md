@@ -3,8 +3,7 @@
 | Platform | File |
 | --- | --- |
 | Linux x86_64 | `TunnelFlare-{{VERSION}}-linux-x86_64.AppImage` |
-| macOS Apple Silicon (M1 and newer) | `TunnelFlare-{{VERSION}}-macos-arm64.dmg` |
-| macOS Intel | `TunnelFlare-{{VERSION}}-macos-x86_64.dmg` |
+| macOS (Apple Silicon and Intel) | `TunnelFlare-{{VERSION}}-macos-universal.dmg` |
 | Windows x64 | `TunnelFlare-{{VERSION}}-windows-x64-setup.exe` (installer, no admin rights needed) or `TunnelFlare-{{VERSION}}-windows-x64-portable.zip` |
 
 Everything is included: Python, Qt and cloudflared {{CLOUDFLARED_VERSION}} ship inside the app, so there is nothing else to install.
@@ -18,4 +17,4 @@ These builds are not code-signed yet, so the operating system asks once before o
 - **Windows**: if SmartScreen shows "Windows protected your PC", click **More info → Run anyway**.
 - **Linux**: run `chmod +x TunnelFlare-*.AppImage` and then start it, or install it with [Gear Lever](https://github.com/mijorus/gearlever), which also handles updates.
 
-Each file has a checksum in `SHA256SUMS.txt`. Before publishing, every build passed the test suite on Linux, macOS and Windows and a packaged-app self-test on its own OS, including a live Cloudflare quick tunnel.
+Each file has a checksum in `SHA256SUMS.txt`. Before publishing, every build passed the test suite on Linux, macOS and Windows and a packaged-app self-test on its own OS, including a live Cloudflare quick tunnel; the macOS app was tested on both Apple Silicon and Intel Macs.

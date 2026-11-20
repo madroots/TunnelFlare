@@ -6,10 +6,15 @@ Installs/unpacks each artifact the way a user would and runs the frozen app's
 self-test:
   linux    AppImage with APPIMAGE_EXTRACT_AND_RUN=1 (under `xvfb-run -a` when no display)
   macos    DMG attached read-only, .app copied out with ditto, codesign-verified, run
-  windows  setup.exe silent per-user install -> self-test -> silent uninstall
-           (asserts removal); portable zip unpacked -> self-test (never --e2e)
+           natively on the host architecture (the universal DMG is tested on arm64
+           and x86_64 runners)
+  windows  setup.exe silent per-user install (asserts it does not start the app)
+           -> self-test -> reinstall with /RELAUNCH=1 (asserts it starts the app)
+           -> silent uninstall (asserts removal); portable zip unpacked -> self-test
+           (never --e2e)
 Reports: dist/release/selftest-<target>[-<variant>].json; screenshot:
-dist/release/screenshot-<target>.png. Exits non-zero if any check fails.
+dist/release/screenshot-<target>[-<variant>].png (macOS variant: host architecture).
+Exits non-zero if any check fails.
 """
 
 from __future__ import annotations
@@ -17,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -45,7 +51,7 @@ def selftest(
     report = RELEASE / f"selftest-{target}{suffix}.json"
     args = ["--self-test", "--report", report, "--expect-cloudflared", expect]
     if screenshot:
-        args += ["--screenshot", RELEASE / f"screenshot-{target}.png"]
+        args += ["--screenshot", RELEASE / f"screenshot-{target}{suffix}.png"]
     if e2e:
         args.append("--e2e")
     tries = attempts if e2e else 1
@@ -110,36 +116,73 @@ def smoke_macos(info: dict, expect: str, e2e: bool, attempts: int, tmp: Path) ->
     finally:
         run(["hdiutil", "detach", mount, "-force"])
     run(["codesign", "--verify", "--deep", "--strict", "--verbose=2", app])
-    return selftest(
-        [app / "Contents" / "MacOS" / buildlib.APP_NAME],
-        info["target"],
-        None,
-        expect,
-        e2e,
-        attempts,
-    )
+    exe = app / "Contents" / "MacOS" / buildlib.APP_NAME
+    arch = platform.machine()
+    run(["lipo", "-archs", exe])
+    return selftest([exe], info["target"], arch, expect, e2e, attempts)
+
+
+def app_processes(exe_name: str) -> int:
+    """Number of running processes with this image name (Windows)."""
+    out = subprocess.run(
+        ["tasklist", "/FI", f"IMAGENAME eq {exe_name}", "/FO", "CSV", "/NH"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return sum(line.startswith(f'"{exe_name}"') for line in out.splitlines())
+
+
+def wait_for_processes(exe_name: str, running: bool, seconds: float) -> bool:
+    """Poll until the app is (not) running; True once the state is reached."""
+    deadline = time.monotonic() + seconds
+    while True:
+        if (app_processes(exe_name) > 0) == running:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(1)
 
 
 def smoke_windows(info: dict, expect: str, e2e: bool, attempts: int, tmp: Path) -> bool:
     target, exe_name = info["target"], f"{buildlib.APP_NAME}.exe"
     setup = ROOT / info["artifacts"]["setup"]
     install = tmp / "installed"
-    run(
-        [
-            setup,
-            "/VERYSILENT",
-            "/SUPPRESSMSGBOXES",
-            "/NORESTART",
-            "/CURRENTUSER",
-            f"/DIR={install}",
-            f"/LOG={tmp / 'setup.log'}",
-        ]
-    )
+    install_args = [
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        "/CURRENTUSER",
+        f"/DIR={install}",
+    ]
+    run([setup, *install_args, f"/LOG={tmp / 'setup.log'}"])
     exe, uninstaller = install / exe_name, install / "unins000.exe"
     for path in (exe, uninstaller, install / "_internal"):
         if not path.exists():
             raise SystemExit(f"installer did not create {path}")
+    # A plain silent install must not start the app (only /RELAUNCH=1 does).
+    time.sleep(5)
+    quiet_ok = app_processes(exe_name) == 0
+    print(
+        f"silent install without /RELAUNCH: {'PASS, app not started' if quiet_ok else 'FAIL, app started'}",
+        flush=True,
+    )
+    if not quiet_ok:
+        run(["taskkill", "/F", "/T", "/IM", exe_name])
+        wait_for_processes(exe_name, False, 30)
     installed_ok = selftest([exe], target, "installer", expect, e2e, attempts)
+
+    # The in-app updater reinstalls with /RELAUNCH=1 and expects the app to come back.
+    run([setup, *install_args, "/RELAUNCH=1", f"/LOG={tmp / 'setup-relaunch.log'}"])
+    relaunch_ok = wait_for_processes(exe_name, True, 60)
+    print(
+        f"silent install with /RELAUNCH=1: {'PASS, app started' if relaunch_ok else 'FAIL, app not started'}",
+        flush=True,
+    )
+    if relaunch_ok:
+        run(["taskkill", "/F", "/T", "/IM", exe_name])
+        if not wait_for_processes(exe_name, False, 30):
+            raise SystemExit(f"{exe_name} is still running after taskkill")
 
     run([uninstaller, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
     leftovers = [exe, uninstaller, install / "_internal"]
@@ -167,7 +210,7 @@ def smoke_windows(info: dict, expect: str, e2e: bool, attempts: int, tmp: Path) 
         1,
         screenshot=False,
     )
-    return installed_ok and uninstall_ok and portable_ok
+    return quiet_ok and installed_ok and relaunch_ok and uninstall_ok and portable_ok
 
 
 def main() -> None:

@@ -1,10 +1,12 @@
 """Build TunnelFlare release artifacts for one target on its native host.
 
-Usage: python packaging/build.py --target {linux-x86_64,macos-arm64,macos-x86_64,windows-x64}
+Usage: python packaging/build.py --target {linux-x86_64,macos-universal,windows-x64}
 
-Steps: fetch cloudflared -> render icons -> collect licenses -> PyInstaller
-(packaging/tunnelflare.spec) -> verify bundle contents -> package into
-dist/release/ -> write dist/release/build-info.json.
+Steps: fetch cloudflared -> (macos-universal: universal2 psutil wheel, see
+universal2.py) -> render icons -> collect licenses -> PyInstaller
+(packaging/tunnelflare.spec) -> verify bundle contents (Qt plugins, and on
+macOS that every Mach-O file has arm64 + x86_64) -> package into dist/release/
+-> write dist/release/build-info.json.
 
 Environment:
   MACOS_CODESIGN_IDENTITY  macOS signing identity passed to the spec (default: ad-hoc).
@@ -24,6 +26,7 @@ from pathlib import Path
 import buildlib
 import collect_licenses
 import fetch_cloudflared
+import universal2
 from buildlib import BUILD, DIST, ICONS, PACKAGING, RELEASE, ROOT, run
 
 APPIMAGETOOL_URL = "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
@@ -33,18 +36,6 @@ RUNTIME_URL = "https://github.com/AppImage/type2-runtime/releases/download/20251
 RUNTIME_SHA256 = "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
 UPDATE_INFO = "gh-releases-zsync|madroots|TunnelFlare|latest|TunnelFlare-*-linux-x86_64.AppImage.zsync"
 ISCC_DEFAULT = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
-
-# Qt plugin each platform needs: (plugin dir, file-name fragment)
-QT_PLUGINS = {
-    "linux": [
-        ("platforms", "qxcb"),
-        ("platforms", "qwayland"),
-        ("platforms", "qoffscreen"),
-    ],
-    "macos": [("platforms", "qcocoa")],
-    "windows": [("platforms", "qwindows")],
-}
-QT_SVG_PLUGINS = [("imageformats", "qsvg"), ("iconengines", "qsvgicon")]
 
 
 def bundle_layout(target: str) -> tuple[Path, Path, Path]:
@@ -57,9 +48,42 @@ def bundle_layout(target: str) -> tuple[Path, Path, Path]:
     return DIST / name, DIST / name / exe, DIST / name / "_internal"
 
 
+def verify_universal(root: Path, exe: Path, meipass: Path, files: list[Path]) -> list[str]:
+    """Problems unless every Mach-O file in the app has both arm64 and x86_64."""
+    problems = [
+        f"{p.relative_to(root)} is not universal2: {' '.join(sorted(archs))}"
+        for p in files
+        if (archs := buildlib.macho_file_archs(p)) is not None
+        and not buildlib.UNIVERSAL_ARCHS <= archs
+    ]
+    python_lib = meipass / "Python"
+    if not python_lib.exists():
+        python_lib = next(iter(sorted(meipass.glob("libpython3*.dylib"))), python_lib)
+    key_files = {
+        "executable": exe,
+        "cloudflared": meipass / "cloudflared",
+        "Python": python_lib,
+        "QtCore": meipass / "PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore",
+        **{f"psutil/{p.name}": p for p in sorted((meipass / "psutil").glob("*.so"))},
+    }
+    if not any(name.startswith("psutil/") for name in key_files):
+        problems.append("no psutil extension module in the bundle")
+    for name, path in key_files.items():
+        if not path.exists():
+            problems.append(f"{name}: {path} missing")
+            continue
+        archs = subprocess.run(
+            ["lipo", "-archs", str(path)], capture_output=True, text=True, check=True
+        ).stdout.split()
+        print(f"  lipo -archs {name}: {' '.join(archs)}")
+        if not buildlib.UNIVERSAL_ARCHS <= set(archs):
+            problems.append(f"{name} is not universal2: {' '.join(archs)}")
+    return problems
+
+
 def verify_bundle(target: str, cloudflared_version: str) -> Path:
     root, exe, meipass = bundle_layout(target)
-    family = target.split("-")[0]
+    family = buildlib.family(target)
     problems = []
 
     def need(path: Path, what: str) -> None:
@@ -87,20 +111,29 @@ def verify_bundle(target: str, cloudflared_version: str) -> Path:
         need(meipass / "licenses" / rel, "license")
 
     search = root / "Contents" if family == "macos" else meipass
-    files = [p for p in search.rglob("*") if p.is_file()]
-    plugins = sorted(
-        p.relative_to(search).as_posix()
+    # Real files only: macOS bundles link data files and frameworks with symlinks.
+    files = [p for p in search.rglob("*") if p.is_file() and not p.is_symlink()]
+    plugins = {
+        p.relative_to(search).as_posix(): plugin
         for p in files
-        if p.parent.parent.name == "plugins"
-    )
-    for plugin_dir, fragment in QT_PLUGINS[family] + QT_SVG_PLUGINS:
-        if not any(p.parent.name == plugin_dir and fragment in p.name for p in files):
-            problems.append(f"Qt plugin {plugin_dir}/*{fragment}* not bundled")
+        if (plugin := buildlib.qt_plugin(p.relative_to(search).as_posix()))
+    }
+    for path, plugin in sorted(plugins.items()):
+        if not buildlib.qt_plugin_wanted(target, plugin):
+            problems.append(f"unwanted Qt plugin bundled: {path}")
+    for plugin_dir, names in buildlib.QT_PLUGINS[family].items():
+        for name in names or ():
+            if (plugin_dir, name) not in plugins.values():
+                problems.append(f"Qt plugin {plugin_dir}/{name} not bundled")
+    if any(p.suffix == ".qm" for p in files):
+        problems.append("Qt translations (.qm) bundled")
     if family == "linux" and not any(p.name == "libxcb-cursor.so.0" for p in files):
         problems.append(
             "libxcb-cursor.so.0 was not bundled; Qt's xcb platform plugin needs it. "
             "Install it on the build host (Debian/Ubuntu: apt install libxcb-cursor0) and rebuild."
         )
+    if family == "macos":
+        problems += verify_universal(root, exe, meipass, files)
     if problems:
         raise SystemExit("bundle verification failed:\n  " + "\n  ".join(problems))
 
@@ -116,7 +149,7 @@ def verify_bundle(target: str, cloudflared_version: str) -> Path:
 
     size = sum(p.stat().st_size for p in files)
     print(f"bundle OK: {root} ({size / 2**20:.1f} MiB, {len(files)} files)")
-    print("  Qt plugins: " + ", ".join(plugins))
+    print("  Qt plugins: " + ", ".join(sorted(plugins)))
     print("  cloudflared: " + output.strip())
     return exe
 
@@ -256,6 +289,9 @@ def main() -> None:
 
     print("== cloudflared", flush=True)
     print(fetch_cloudflared.fetch(target, BUILD / "cloudflared" / target))
+    if target == "macos-universal":
+        print("== universal2 wheels", flush=True)
+        universal2.ensure_universal_wheels()
     print("== icons", flush=True)
     run([sys.executable, PACKAGING / "make_icons.py", "--out", ICONS])
     print("== licenses", flush=True)

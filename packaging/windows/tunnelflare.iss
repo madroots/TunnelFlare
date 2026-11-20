@@ -1,6 +1,10 @@
 ; Inno Setup 6 script for TunnelFlare. Compiled by packaging/build.py:
 ;   ISCC.exe /DAppVersion=<v> /DSourceDir=<dist\TunnelFlare> /DOutputDir=<dist\release>
 ;            /DIconFile=<build\icons\tunnelflare.ico> packaging\windows\tunnelflare.iss
+;
+; Command line: the standard Inno Setup switches, plus /RELAUNCH=1, which starts
+; TunnelFlare once a silent install finishes (used by the in-app updater).
+; Silent installs without it never launch the app.
 
 #ifndef AppVersion
   #error AppVersion must be defined (/DAppVersion=x.y.z)
@@ -64,3 +68,10 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: RelaunchAfterSilentInstall
+
+[Code]
+function RelaunchAfterSilentInstall: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:relaunch|0}') = '1');
+end;

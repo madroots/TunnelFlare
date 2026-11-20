@@ -6,9 +6,10 @@ Normally driven by packaging/build.py, which prepares the inputs and then runs:
         --distpath dist packaging/tunnelflare.spec -- --target <target>
 
 Parameters reach this spec as follows:
-  --target (after "--")    linux-x86_64 | macos-arm64 | macos-x86_64 | windows-x64;
-                           selects the cloudflared binary, the license directory
-                           and, on macOS, target_arch (arm64 / x86_64).
+  --target (after "--")    linux-x86_64 | macos-universal | windows-x64;
+                           selects the cloudflared binary, the license directory,
+                           the Qt plugins (buildlib.QT_PLUGINS) and, on macOS,
+                           target_arch universal2.
   version                  __version__ parsed from tunnelflare_backend/__init__.py.
   MACOS_CODESIGN_IDENTITY  env var; macOS signing identity. Unset or empty means
                            PyInstaller's ad-hoc signature.
@@ -100,10 +101,82 @@ a = Analysis(
     excludes=["tkinter", "_tkinter", "turtle", "turtledemo", "idlelib"],
     noarchive=False,
 )
-# The fixed Fusion style and palette replace the desktop theme. Qt's GTK3 and
-# XDG-portal theme plugins would load the build host's GTK stack on users'
-# desktops (version clashes on newer distros), so they are not shipped.
-a.binaries = [entry for entry in a.binaries if "platformthemes" not in entry[0].replace("\\", "/").split("/")]
+
+# Libraries collected for features the app never uses: Qt's software OpenGL
+# fallback and the OpenSSL copy Qt's TLS plugin would load on Windows (Python's
+# ssl module links its own libssl-3.dll). Dropped unless a kept binary links them.
+UNUSED_LIBRARIES = {"opengl32sw.dll", "libssl-3-x64.dll", "libcrypto-3-x64.dll"}
+
+
+def prune(binaries, datas):
+    """Drop unwanted Qt plugins (buildlib.QT_PLUGINS), the libraries only they or
+    UNUSED_LIBRARIES pull in (GTK for the platform themes, EGLFS support, ...), the
+    symlinks to dropped files, and Qt's translations (no QTranslator is installed)."""
+    from PyInstaller.depend.bindepend import get_imports
+
+    def norm(path):
+        return os.path.normcase(os.path.realpath(path))
+
+    def base(name):
+        name = os.path.basename(name.replace("\\", "/"))
+        return name.lower() if IS_WINDOWS else name
+
+    by_path = {norm(entry[1]): entry for entry in binaries}
+    by_name = {}
+    for entry in binaries:
+        by_name.setdefault(base(entry[0]), entry)
+        by_name.setdefault(base(entry[1]), entry)
+    search_paths = sorted({os.path.dirname(entry[1]) for entry in binaries})
+    graph = {}
+    for entry in binaries:
+        deps = set()
+        for name, path in get_imports(entry[1], search_paths):
+            dep = by_path.get(norm(path)) if path else None
+            dep = dep or by_name.get(base(name))
+            if dep and dep != entry:
+                deps.add(dep)
+        graph[entry] = deps
+
+    def reachable(start):
+        seen, stack = set(), list(start)
+        while stack:
+            for dep in graph[stack.pop()] - seen:
+                seen.add(dep)
+                stack.append(dep)
+        return seen
+
+    dropped = {
+        entry
+        for entry in binaries
+        if (plugin := buildlib.qt_plugin(entry[0]))
+        and not buildlib.qt_plugin_wanted(TARGET, plugin)
+    }
+    unused = {entry for entry in binaries if base(entry[0]) in UNUSED_LIBRARIES}
+    candidates = (reachable(dropped) | unused) - dropped
+    roots = set(binaries) - dropped - candidates
+    removed = dropped | (candidates - reachable(roots))
+    removed_dests = {entry[0].replace("\\", "/") for entry in removed}
+
+    def keep_data(entry):
+        dest, src, kind = entry
+        parts = dest.replace("\\", "/").split("/")
+        if parts[0] == "PySide6" and "translations" in parts[:3]:
+            return False
+        return not (kind == "SYMLINK" and src.replace("\\", "/") in removed_dests)
+
+    kept_datas = [entry for entry in datas if keep_data(entry)]
+    size = sum(os.path.getsize(entry[1]) for entry in removed)
+    print(
+        f"pruned {len(removed)} binaries ({size / 2**20:.1f} MiB) and "
+        f"{len(datas) - len(kept_datas)} data files:",
+        flush=True,
+    )
+    for dest in sorted(removed_dests):
+        print(f"  - {dest}", flush=True)
+    return [entry for entry in binaries if entry not in removed], kept_datas
+
+
+a.binaries, a.datas = prune(a.binaries, a.datas)
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -118,7 +191,7 @@ exe = EXE(
     console=False,
     icon=str(ICON_ICO) if IS_WINDOWS else str(ICON_ICNS) if IS_MACOS else None,
     version=version_info,
-    target_arch={"macos-arm64": "arm64", "macos-x86_64": "x86_64"}.get(TARGET),
+    target_arch="universal2" if IS_MACOS else None,
     codesign_identity=os.environ.get("MACOS_CODESIGN_IDENTITY") or None,
 )
 

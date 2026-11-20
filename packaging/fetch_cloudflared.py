@@ -1,10 +1,11 @@
 """Download the pinned cloudflared binary for a target and verify it.
 
-Usage: python packaging/fetch_cloudflared.py --target macos-arm64 --dest build/cloudflared/macos-arm64
+Usage: python packaging/fetch_cloudflared.py --target macos-universal --dest build/cloudflared/macos-universal
 
 Downloads are cached under build/cache/cloudflared/<version>/. The asset sha256
 (GitHub asset digest) is always checked; for the macOS .tgz the extracted binary
-is checked too when cloudflared.json pins binary_sha256. Prints the binary path.
+is checked too when cloudflared.json pins binary_sha256. macos-universal fetches
+both darwin pins and merges them with `lipo -create`. Prints the binary path.
 """
 
 from __future__ import annotations
@@ -16,8 +17,19 @@ from pathlib import Path
 
 import buildlib
 
+# Targets assembled from several pinned binaries with `lipo -create`.
+UNIVERSAL = {"macos-universal": ("macos-arm64", "macos-x86_64")}
+
 
 def fetch(target: str, dest: Path) -> Path:
+    if target in UNIVERSAL:
+        slices = [fetch(part, dest / part) for part in UNIVERSAL[target]]
+        binary = dest / "cloudflared"
+        buildlib.run(["lipo", "-create", "-output", binary, *slices])
+        archs = buildlib.macho_file_archs(binary) or set()
+        if not buildlib.UNIVERSAL_ARCHS <= archs:
+            raise SystemExit(f"{binary} is not universal: {sorted(archs)}")
+        return binary
     pin = buildlib.cloudflared_pin()
     if target not in pin["targets"]:
         raise SystemExit(f"no cloudflared pin for target {target}")
@@ -69,7 +81,9 @@ def fetch(target: str, dest: Path) -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--target", required=True, choices=sorted(buildlib.cloudflared_pin()["targets"])
+        "--target",
+        required=True,
+        choices=sorted([*buildlib.cloudflared_pin()["targets"], *UNIVERSAL]),
     )
     parser.add_argument("--dest", required=True, type=Path)
     args = parser.parse_args()
