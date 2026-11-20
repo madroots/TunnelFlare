@@ -9,8 +9,7 @@ published.
 | Platform | Artifact | Minimum OS | Built on (GitHub runner) |
 | --- | --- | --- | --- |
 | Linux x86_64 | `TunnelFlare-<v>-linux-x86_64.AppImage` (+ `.zsync` for Gear Lever updates) | glibc 2.35: Ubuntu 22.04, Debian 12, Fedora 36, openSUSE Leap 16 or newer | `ubuntu-22.04` |
-| macOS Apple Silicon | `TunnelFlare-<v>-macos-arm64.dmg` | macOS 14 Sonoma | `macos-15` |
-| macOS Intel | `TunnelFlare-<v>-macos-x86_64.dmg` | macOS 14 Sonoma | `macos-15-intel` (GitHub retires it in August 2027) |
+| macOS (Apple Silicon and Intel) | `TunnelFlare-<v>-macos-universal.dmg`: one universal2 app, tested on both architectures | macOS 14 Sonoma | built on `macos-15`, tested on `macos-15` and `macos-15-intel` |
 | Windows x64 | `TunnelFlare-<v>-windows-x64-setup.exe` (per-user, no admin) and `-portable.zip` | Windows 10 1809 / Windows 11 (ARM PCs run it through x64 emulation) | `windows-2025` |
 
 Minimums come from the toolchain: PySide6 6.12 wheels need macOS 14 and glibc
@@ -22,15 +21,16 @@ build, so Windows ships x64 only.
 Users install one file. Inside it:
 
 - **Python 3.14** runtime (bugfix support until 2027-10, security fixes until 2030-10).
-- **Qt 6.12 LTS** via `PySide6-Essentials` only (no Qt WebEngine or other unused modules).
+- **Qt 6.12 LTS** via `PySide6-Essentials` only (no Qt WebEngine or other unused
+  modules), with only the Qt plugins the app uses (platform, SVG and input-method plugins).
 - **cloudflared 2026.11.1**, pinned in `packaging/cloudflared.json` and verified
   against SHA-256 checksums before it is bundled. On first use the app copies it
   to `~/.tunnelflare/bin/` so firewall rules keep a stable path across updates;
   newer releases replace that copy atomically.
 - Bundled **Inter** and **JetBrains Mono** fonts (SIL OFL) and third-party license notices.
 
-Nothing is downloaded at runtime, so the app works the same offline, behind
-proxies, and on locked-down machines.
+Nothing is downloaded at runtime except updates the user accepts, so the app works
+the same offline, behind proxies, and on locked-down machines.
 
 ## Identical app on every OS
 
@@ -43,8 +43,10 @@ proxies, and on locked-down machines.
   only bundled font families and uses only weights 400–700, which every OS font
   engine maps to the same faces (macOS CoreText maps ExtraBold differently).
 - **Same behaviour**: config in `~/.tunnelflare` everywhere. Closing the window
-  hides the app to the tray (left-click restores it). Quit leaves running tunnels
-  up, and they are rediscovered on the next launch. cloudflared runs with the same
+  hides the app to the tray (left-click restores it; on macOS the Dock icon does too).
+  Without a system tray, closing quits. Quitting with running tunnels asks whether
+  to stop them; kept tunnels are rediscovered on the next launch. A second launch
+  brings the running window forward. cloudflared runs with the same
   flags everywhere: `--protocol http2 --edge-ip-version 4`. QUIC needs UDP port 7844,
   which firewalls often block (the reason Windows was moved to HTTP/2 earlier), and
   cloudflared's fallback from QUIC can take minutes. Only Windows dials `127.0.0.1`
@@ -59,7 +61,11 @@ proxies, and on locked-down machines.
   shared libraries (LGPL-3.0 relinking), and onefile `.app` bundles are deprecated.
 - Linux: AppDir + `appimagetool` 1.9.1 (pinned and checksum-verified), with
   update information embedded so Gear Lever can update from GitHub Releases.
-- macOS: `.app` bundle (`io.github.madroots.tunnelflare`) in a drag-to-Applications DMG.
+- macOS: one universal2 `.app` bundle (`io.github.madroots.tunnelflare`) in a
+  drag-to-Applications DMG. psutil's thin wheels and the two cloudflared builds are
+  merged with `lipo`; the build fails unless every binary contains both
+  architectures. The icon follows the macOS rounded-tile style; the menu-bar icon
+  is a template image.
 - Windows: Inno Setup installer (per-user install to
   `%LOCALAPPDATA%\Programs\TunnelFlare`, Start Menu shortcut, uninstaller,
   in-place upgrades that replace the old runtime), plus a portable zip.
@@ -73,6 +79,7 @@ proxies, and on locked-down machines.
 | Unit and GUI tests (`pytest`, `pytest-qt`, offscreen) | Config writes are atomic. Tunnel start/stop/URL detection. A reused PID is never reported or killed. Exited tunnels are not shown as running. Startup errors reach the user and unlock the controls. Delete is locked while a start runs. QR rendering. Every stylesheet font weight maps to the bundled face. A fake cloudflared keeps these tests fast and offline. | Linux, macOS, Windows on Python 3.14, plus Linux on Python 3.11 |
 | Packaged-app self-test (`TunnelFlare --self-test`) | The **final artifact** runs on its OS: resources, fonts, SVG plugins, QR code, bundled cloudflared version, main window render plus screenshot. Linux runs the AppImage under Xvfb. macOS mounts the DMG, verifies the code signature and runs the copied `.app`. Windows installs silently, runs, and uninstalls, and also tests the portable zip. | Every build of every target |
 | End-to-end (`--self-test --e2e`) | The packaged app opens a **real Cloudflare quick tunnel** to a local web server and fetches the page back through the public `trycloudflare.com` URL, then stops the tunnel. Retried up to 3 times for network flakiness. | Every build of every target |
+| Update end-to-end | The installed artifact updates itself from a local fake GitHub release: download, SHA-256 check, install (Windows installer, macOS bundle swap, AppImage replace), then the updated app passes its self-test again. | Every build of every target |
 | Manual release check | First-run experience: Gatekeeper/SmartScreen prompts, firewall prompt, tray behaviour, scanning the QR code with a phone, upgrading over the previous version | Before announcing a release |
 
 A release is published only if every job above passes for every target.
@@ -111,13 +118,27 @@ To remove those prompts:
 3. Add a `LICENSE` file. The repository has none, which also blocks SignPath and
    leaves redistribution terms unclear.
 
+## Automatic updates
+
+- Once a day (opt-out in the tray menu) the app asks the GitHub Releases API for
+  the latest release. If it is newer, a banner offers **Update**.
+- The update downloads the platform file, verifies it against `SHA256SUMS.txt`, and
+  installs it, then the app restarts:
+  - Windows: the per-user installer runs silently with `/RELAUNCH=1`.
+  - macOS: a helper swaps the `.app` after the app quits, then reopens it.
+  - Linux: the AppImage file is replaced atomically.
+  Running tunnels stay up.
+- Trust model: GitHub Releases over HTTPS plus the checksum file. Until releases are
+  code-signed, whoever controls the GitHub repository controls the updates. Signing
+  (above) closes that gap on macOS and Windows.
+
 ## Keeping it safe and current
 
 | Component | Policy | Next action |
 | --- | --- | --- |
-| Qt / PySide6 | Stay on the current LTS line (6.12). Open-source patch releases stop when Qt 6.13 ships. | Move to 6.13 around April 2027 |
+| Qt / PySide6 | Stay on the newest release line (6.12, the current LTS). Open-source patch releases stop when Qt 6.13 ships; as of 2026-11-20 no 6.13 build exists on PyPI. | Move to 6.13 when it is released (planned for about April 2027). Qt 6.13 drops Windows 10. |
 | Python | Bundle the newest version in bugfix support | Re-evaluate 3.15 in 2027 |
 | cloudflared | Bump the version and checksums in `packaging/cloudflared.json` with each release | Check monthly |
 | Python packages | Regenerate the lock files: `uv pip compile` commands in their headers | Monthly, or when an advisory appears |
 | GitHub Actions | Pinned SHAs; review updates quarterly | — |
-| macOS Intel | `macos-15-intel` is GitHub's last Intel runner | Drop Intel or build universal2 before August 2027 |
+| macOS Intel | `macos-15-intel` is GitHub's last Intel runner; it tests the universal build's x86_64 half | After August 2027, test the x86_64 half under Rosetta on arm64 runners |
