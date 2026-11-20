@@ -1,38 +1,25 @@
 import sys
-from PySide6.QtWidgets import QApplication
-from tunnelflare_gui.main_window import MainWindow
-from tunnelflare_gui.styles import Styles
-import signal
 
-def setup_bundled_path():
-    import os
-    import sys
-    
-    # Handle PyInstaller (Windows)
-    if hasattr(sys, '_MEIPASS'):
-        os.environ['PATH'] = sys._MEIPASS + os.pathsep + os.environ['PATH']
-    
-    # Handle AppImage (Linux)
-    # The AppRun script usually handles this, but let's be safe.
-    appdir = os.environ.get('APPDIR')
-    if appdir:
-        bundled_bin = os.path.join(appdir, 'usr', 'bin')
-        os.environ['PATH'] = bundled_bin + os.pathsep + os.environ['PATH']
 
-def main():
-    setup_bundled_path()
-    app = QApplication(sys.argv)
-    app.setStyleSheet(Styles.STYLESHEET)
-    # Allow headers/fonts to look better on high DPI
-    # QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling) # PySide6 handles this mostly
+def main(argv=None):
+    argv = sys.argv if argv is None else argv
+    if "--self-test" in argv[1:]:
+        from tunnelflare_gui.selftest import run_self_test
+        return run_self_test(argv[1:])
 
+    import signal
+    from tunnelflare_gui.application import create_application
+    from tunnelflare_gui.main_window import MainWindow
+
+    app = create_application(argv)
     window = MainWindow()
     window.show()
-    
+
     # Handle Ctrl+C
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    
-    sys.exit(app.exec())
+
+    return app.exec()
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

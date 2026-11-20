@@ -23,7 +23,7 @@ class Styles:
 
     QWidget {{
         color: {THEME["text_main"]};
-        font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-family: "Inter";
     }}
     
     QScrollArea {{ 
@@ -200,7 +200,7 @@ class Styles:
     }}
     
     QLabel#UrlText {{
-        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-family: "JetBrains Mono";
         font-size: 13px;
         color: {THEME["accent"]};
         background: transparent;
@@ -224,7 +224,7 @@ class Styles:
     QPlainTextEdit {{
         background-color: #0d0d0d;
         color: #cccccc;
-        font-family: 'JetBrains Mono', Consolas, monospace;
+        font-family: "JetBrains Mono";
         border-radius: 16px;
         border: 1px solid rgba(255, 255, 255, 0.06);
         padding: 14px;
